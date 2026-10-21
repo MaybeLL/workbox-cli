@@ -54,4 +54,6 @@ Validate the native executable using `sh scripts/check-install.sh /path/to/workb
 
 CI tests both systems. The release workflow runs on version tags such as `v0.1.0`, tests, packages a draft, builds and tests bottles, merges their metadata, then publishes all assets together. Public archive installation checks run after publication. Updating the separate tap is an explicit maintainer step; the workflow requires no cross-repository token.
 
+If publication fails after both bottles have been uploaded, run the Release workflow manually with that draft's `release_tag`. This resumes metadata merging, publication and public installation checks. It requires an existing draft and both macOS bottle metadata files; published releases cannot be overwritten through this recovery path. The publishing job explicitly trusts the formula created from the project's own release asset before asking Homebrew to merge it.
+
 Publish the tap formula after its referenced release archives and bottles are available. Never replace an existing published release artifact under the same version; use a new patch version for a correction.

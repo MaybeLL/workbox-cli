@@ -2,10 +2,19 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Resume publishing an existing draft with both Mac bottles built (e.g. v0.1.0)'
+        required: true
+        type: string
 permissions:
   contents: write
+env:
+  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
 jobs:
   release:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -16,12 +25,12 @@ jobs:
           go-version: '1.26.x'
       - run: go test ./...
       - name: Package release and Homebrew definition
-        run: go run ./tools/release --version "${GITHUB_REF_NAME#v}" --output dist
+        run: go run ./tools/release --version "${RELEASE_TAG#v}" --output dist
       - name: Prepare draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
-          gh release create "$GITHUB_REF_NAME"
+          gh release create "$RELEASE_TAG"
           dist/*.tar.gz dist/*_checksums.txt dist/homebrew/workbox.rb
           --verify-tag --generate-notes --draft
   bottle:
@@ -44,24 +53,25 @@ jobs:
           git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
           brew tap-new maybell/tap
           tap="$(brew --repository maybell/tap)"
-          gh release download "$GITHUB_REF_NAME" --pattern workbox.rb --dir "$RUNNER_TEMP/recipe"
+          gh release download "$RELEASE_TAG" --pattern workbox.rb --dir "$RUNNER_TEMP/recipe"
           cp "$RUNNER_TEMP/recipe/workbox.rb" "$tap/Formula/workbox.rb"
           git -C "$tap" add Formula/workbox.rb
-          git -C "$tap" commit -m "Build workbox ${GITHUB_REF_NAME}"
+          git -C "$tap" commit -m "Build workbox ${RELEASE_TAG}"
           brew install --build-bottle maybell/tap/workbox
           brew test maybell/tap/workbox
           mkdir -p "$RUNNER_TEMP/bottles"
           cd "$RUNNER_TEMP/bottles"
           brew bottle --json --no-rebuild \
-            --root-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME" \
+            --root-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG" \
             maybell/tap/workbox
           # Homebrew's local filename uses --; its download URL uses a single -.
           for bottle in ./*.bottle.tar.gz; do
             mv "$bottle" "${bottle/workbox--/workbox-}"
           done
-          gh release upload "$GITHUB_REF_NAME" ./*.bottle.tar.gz ./*.bottle.json --clobber
+          gh release upload "$RELEASE_TAG" ./*.bottle.tar.gz ./*.bottle.json --clobber
   publish:
     needs: bottle
+    if: ${{ !cancelled() && (needs.bottle.result == 'success' || github.event_name == 'workflow_dispatch') }}
     runs-on: macos-15
     env:
       GH_TOKEN: ${{ github.token }}
@@ -71,16 +81,21 @@ jobs:
       - name: Merge bottle metadata and publish complete release
         shell: bash
         run: |
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = true
           brew tap-new maybell/tap
           tap="$(brew --repository maybell/tap)"
-          gh release download "$GITHUB_REF_NAME" --pattern workbox.rb \
-            --pattern '*.bottle.json' --dir "$RUNNER_TEMP/recipe"
+          version="${RELEASE_TAG#v}"
+          gh release download "$RELEASE_TAG" --pattern workbox.rb \
+            --pattern "workbox--${version}.arm64_sequoia.bottle.json" \
+            --pattern "workbox--${version}.sequoia.bottle.json" --dir "$RUNNER_TEMP/recipe"
           cp "$RUNNER_TEMP/recipe/workbox.rb" "$tap/Formula/workbox.rb"
+          brew trust --formula maybell/tap/workbox
           brew bottle --merge --write --no-commit "$RUNNER_TEMP/recipe/"*.bottle.json
-          gh release upload "$GITHUB_REF_NAME" "$tap/Formula/workbox.rb" --clobber
-          gh release edit "$GITHUB_REF_NAME" --draft=false
+          gh release upload "$RELEASE_TAG" "$tap/Formula/workbox.rb" --clobber
+          gh release edit "$RELEASE_TAG" --draft=false
   verify-install:
     needs: publish
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
     permissions:
       contents: read
     strategy:
@@ -98,11 +113,11 @@ jobs:
         run: |
           case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; esac
           case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; x86_64) arch=amd64 ;; esac
-          version="${GITHUB_REF_NAME#v}"
+          version="${RELEASE_TAG#v}"
           archive="workbox_${version}_${os}_${arch}.tar.gz"
           destination="$RUNNER_TEMP/workbox-public-install"
           mkdir -p "$destination"
-          gh release download "$GITHUB_REF_NAME" --pattern "$archive" \
+          gh release download "$RELEASE_TAG" --pattern "$archive" \
             --pattern "workbox_${version}_checksums.txt" --dir "$destination"
           cd "$destination"
           if [ "$os" = darwin ]; then
