@@ -124,6 +124,10 @@ func TestUninstallSkillConflictsArePreflighted(t *testing.T) {
 			if e == nil || e.Code != "SKILL_CONFLICT" || e.Data.(*uninstallResult).State != "failed" {
 				t.Fatal(e)
 			}
+			items := e.Data.(*uninstallResult).Skills
+			if items[len(items)-1].State != "conflict" {
+				t.Fatal("conflicting skill was not reported as a conflict")
+			}
 			if !reflect.DeepEqual(before, skillTree(t, home)) {
 				t.Fatal("preflight failure changed files")
 			}

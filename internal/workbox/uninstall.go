@@ -180,9 +180,10 @@ func skillCandidates(extra string) (map[string]map[string]string, string, []rece
 }
 
 func inspectRemoval(path string, files map[string]string) (*uninstallSkill, *Failure) {
-	skill := &uninstallSkill{Path: path, State: "absent", files: files}
+	skill := &uninstallSkill{Path: path, State: "unknown", files: files}
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
+		skill.State = "absent"
 		return skill, nil
 	}
 	if err != nil {
@@ -190,6 +191,7 @@ func inspectRemoval(path string, files map[string]string) (*uninstallSkill, *Fai
 	}
 	conflict := fail("SKILL_CONFLICT", "A workbox skill was changed or contains unrecognized files; back it up and move it aside before uninstalling")
 	conflict.Details["path"] = path
+	skill.State = "conflict"
 	if !info.IsDir() {
 		return skill, conflict
 	}
