@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 )
@@ -41,6 +42,7 @@ const usage = `Usage: workbox COMMAND [--format text|json]
   workspace create --config NAME --path DIR
   workspace status --path DIR
   skill install [--path SKILLS_DIRECTORY]
+  uninstall [--dry-run] [--skill-path SKILLS_DIRECTORY]
   --help
   --version
 
@@ -48,6 +50,8 @@ Every command supports --format json; text is the default.
 Scripts are stored and returned to the caller, never executed.
 Skill install copies the bundled skill to ~/.agents/skills/workbox by default.
 --path selects a different skills parent directory. Existing differences are never overwritten.
+Uninstall removes the CLI and unmodified companion skills; configuration and workspaces are preserved.
+--dry-run previews uninstall. --skill-path locates a custom skill installed by an older version.
 `
 
 func outputFormat(args []string) ([]string, string, *Failure) {
@@ -81,14 +85,25 @@ func outputFormat(args []string) ([]string, string, *Failure) {
 func parse(args []string) (command, *Failure) {
 	c := command{flags: map[string]string{}}
 	bad := fail("INVALID_ARGUMENTS", "Invalid command arguments; use --help for syntax")
-	if len(args) < 2 {
+	if len(args) == 0 {
 		return c, bad
 	}
-	c.entity, c.action = args[0], args[1]
+	c.entity = args[0]
+	start := 1
+	if c.entity != "uninstall" {
+		if len(args) < 2 {
+			return c, bad
+		}
+		c.action = args[1]
+		start = 2
+	}
 	allowed := map[string]bool{}
 	required := []string{}
 	needsName := false
 	switch c.entity {
+	case "uninstall":
+		allowed["dry-run"] = true
+		allowed["skill-path"] = true
 	case "repo-config", "workspace-config":
 		switch c.action {
 		case "add", "update":
@@ -142,7 +157,7 @@ func parse(args []string) (command, *Failure) {
 	}
 	positional := []string{}
 	literal := false
-	for i := 2; i < len(args); i++ {
+	for i := start; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" && !literal {
 			literal = true
@@ -158,6 +173,16 @@ func parse(args []string) (command, *Failure) {
 			}
 			if _, ok := c.flags[flag]; ok {
 				return c, bad
+			}
+			if c.entity == "uninstall" && flag == "dry-run" {
+				if !hasValue {
+					val = "true"
+				}
+				if val != "true" && val != "false" {
+					return c, bad
+				}
+				c.flags[flag] = val
+				continue
 			}
 			if !hasValue {
 				i++
@@ -192,6 +217,13 @@ func (a *app) execute(ctx context.Context, c command) (any, *Failure) {
 	}
 	if c.entity == "skill" {
 		return installSkill(ctx, c.flags)
+	}
+	if c.entity == "uninstall" {
+		binary, err := os.Executable()
+		if err != nil {
+			return nil, ioFailure("Could not locate the running executable")
+		}
+		return uninstall(ctx, binary, os.Args[0], c.flags)
 	}
 	if c.entity == "workspace" && c.action == "status" {
 		return a.status(ctx, c.flags["path"])
@@ -230,7 +262,7 @@ func (a *app) run(ctx context.Context, args []string, stdout, stderr io.Writer, 
 			ver = ver || arg == "--version"
 		}
 		if help {
-			data = map[string]any{"usage": usage, "commands": []string{"repo-config add/list/show/update/remove", "workspace-config add/list/show/update/remove", "config export/import", "workspace plan/create/status", "skill install"}}
+			data = map[string]any{"usage": usage, "commands": []string{"repo-config add/list/show/update/remove", "workspace-config add/list/show/update/remove", "config export/import", "workspace plan/create/status", "skill install", "uninstall"}}
 		} else if ver && len(clean) == 1 {
 			data = map[string]string{"program": "workbox", "version": version}
 		} else {

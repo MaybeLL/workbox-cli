@@ -1,9 +1,10 @@
 package workbox
 
 import (
-	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -30,6 +31,10 @@ func skillBundle() (map[string][]byte, error) {
 // Compare the entire tree, including unexpected files and links, before calling
 // an installation unchanged. Existing content is never repaired or overwritten.
 func sameSkill(root *os.Root, files map[string][]byte) bool {
+	return sameSkillHashes(root, skillHashes(files))
+}
+
+func sameSkillHashes(root *os.Root, files map[string]string) bool {
 	count := 0
 	err := fs.WalkDir(root.FS(), ".", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -46,12 +51,12 @@ func sameSkill(root *os.Root, files map[string][]byte) bool {
 			}
 			return fs.ErrInvalid
 		}
-		body, known := files[path]
+		hash, known := files[path]
 		if !known || !entry.Type().IsRegular() {
 			return fs.ErrInvalid
 		}
 		actual, err := root.ReadFile(path)
-		if err != nil || !bytes.Equal(body, actual) {
+		if err != nil || fmt.Sprintf("%x", sha256.Sum256(actual)) != hash {
 			return fs.ErrInvalid
 		}
 		count++
@@ -122,6 +127,9 @@ func installSkill(ctx context.Context, flags map[string]string) (data any, failu
 	defer parent.Close()
 	result := map[string]any{"skill": "workbox", "path": target, "state": "unchanged", "next_step": "Use $workbox in your next Codex message; restart Codex if it does not appear"}
 	if exists, e := existingSkill(parent, files); exists || e != nil {
+		if e == nil {
+			e = recordSkill(dir, files)
+		}
 		return result, e
 	}
 	id, e := uuid()
@@ -154,6 +162,9 @@ func installSkill(ctx context.Context, flags map[string]string) (data any, failu
 	}
 	// Publish the complete tree without ever replacing an existing target.
 	// os.Root.Rename cannot portably replace even an empty reserved directory.
+	if e := recordSkill(dir, files); e != nil {
+		return nil, e
+	}
 	if err := publishSkill(parent, stage); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			if exists, e := existingSkill(parent, files); exists || e != nil {

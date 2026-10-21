@@ -36,6 +36,21 @@ This installs the bundled skill and its workflow reference into `~/.agents/skill
 
 To choose a different skills parent directory, use `workbox skill install --path /path/to/skills`. The installer always adds a `workbox` subdirectory. Identical content returns `state: "unchanged"`; different, incomplete, extra or symlinked content returns `SKILL_CONFLICT` without overwriting anything. To replace a different or customized version, back up and move the existing `workbox` directory aside, then rerun the command. There is no force-overwrite mode.
 
+## Uninstall
+
+With Workbox 0.1.2 or later, remove the CLI and its installed companion skills together:
+
+```sh
+workbox uninstall --dry-run   # Preview without changing files
+workbox uninstall
+```
+
+Homebrew installations are removed through `brew uninstall --formula --force maybell/tap/workbox`, including older installed Workbox versions. Direct archive installations remove the running `workbox` executable and its invocation symlink, if present. Configuration databases, existing workspaces, other skills and shared parent directories are preserved. No administrator password is requested; the installation directory must be writable by your user.
+
+Uninstall discovers recorded skill locations and the standard `~/.agents/skills/workbox`, `~/.codex/skills/workbox` and `~/.claude/skills/workbox` directories. It verifies every skill before deleting anything. Changed, incomplete, extra or symlinked content causes `SKILL_CONFLICT`; back up and move that directory aside before retrying. A later package-manager error can leave skills already removed; JSON output reports partial results and retains configuration/workspaces.
+
+Starting with 0.1.2, `skill install` records every custom installation path. For a custom path installed with 0.1.1, run `workbox skill install --path DIR` once to register identical content, or use `workbox uninstall --skill-path DIR`. Uninstall does not search the whole disk or remove archive/source checkouts. Installation records use `WORKBOX_STATE_HOME`, otherwise `${XDG_STATE_HOME:-~/.local/state}/workbox`; keep the same environment when installing and uninstalling.
+
 ## First workspace
 
 The URL below is a placeholder. Replace it with a repository you can access and a branch that actually exists. Git must already have credentials and, for SSH, a trusted host key.
@@ -95,6 +110,7 @@ workbox workspace status --path DIR
 workbox config export --output FILE
 workbox config import --input FILE
 workbox skill install [--path SKILLS_DIRECTORY]
+workbox uninstall [--dry-run] [--skill-path SKILLS_DIRECTORY]
 workbox --help
 workbox --version
 ```
@@ -136,7 +152,7 @@ Each checkout reports `kind`, relative `path`, `branch`, full `commit`, `clean`,
 JSON stdout always contains exactly one envelope, even for parser errors:
 
 ```json
-{"ok": true, "data": {"program": "workbox", "version": "0.1.1"}, "error": null}
+{"ok": true, "data": {"program": "workbox", "version": "0.1.2"}, "error": null}
 ```
 
 Errors use `{"code":"...","message":"...","details":{}}`; partial results remain in `data`. Diagnostic output belongs on stderr. Create errors retain the directory and report each repository as `completed`, `failed` or `not_attempted`, including actual commits already read. There is no rollback, overwrite, resume, or cleanup. Use a fresh target or explicitly handle the existing directory. SIGINT/SIGTERM return best-effort partial JSON with exit 130; process crashes/forced kills cannot promise output.
@@ -144,8 +160,8 @@ Errors use `{"code":"...","message":"...","details":{}}`; partial results remain
 | Exit | Meaning / codes |
 | --- | --- |
 | 0 | Success, dirty observations, identical imports |
-| 2 | `INVALID_ARGUMENTS`, `CONFIG_INVALID`, `CONFIG_NOT_FOUND`, `CONFIG_CONFLICT`, `SCHEMA_UNSUPPORTED`, `PATH_INVALID`, `TARGET_EXISTS`, `SKILL_CONFLICT`, `REMOTE_BRANCH_NOT_FOUND`; `REMOTE_REPO_NOT_FOUND` is reserved for conclusive evidence |
-| 1 | `IO_ERROR`, `GIT_ERROR`, `REMOTE_UNVERIFIABLE`, `TIMEOUT`, `STATUS_PARTIAL` |
+| 2 | `INVALID_ARGUMENTS`, `CONFIG_INVALID`, `CONFIG_NOT_FOUND`, `CONFIG_CONFLICT`, `SCHEMA_UNSUPPORTED`, `PATH_INVALID`, `TARGET_EXISTS`, `SKILL_CONFLICT`, `UNINSTALL_UNSUPPORTED`, `REMOTE_BRANCH_NOT_FOUND`; `REMOTE_REPO_NOT_FOUND` is reserved for conclusive evidence |
+| 1 | `IO_ERROR`, `GIT_ERROR`, `REMOTE_UNVERIFIABLE`, `TIMEOUT`, `STATUS_PARTIAL`, `UNINSTALL_FAILED` |
 | 130 | `INTERRUPTED` |
 
 Directory creation is exclusive and checks directory identities and symlinks between steps. It detects common filesystem substitutions, but does not claim isolation from every hostile concurrent filesystem mutation. Baselines are a workflow convention, not physically read-only repositories. Worktrees share Git objects and some refs/metadata.
@@ -159,6 +175,6 @@ go test -race ./...
 
 Tests isolate all configuration state and Git configuration in temporary directories. HTTPS-shaped URLs are redirected by Git's `insteadOf` to temporary local remotes, so actual branch queries, clones, status, submodules, and linked worktrees run without network or user credentials. Fault injection covers concurrent writes, path races, cancellation, timeout and partial clone failures. Actual permission failures and process signals are also checked. No tests touch the user's DB or working repositories. See [test contracts](docs/testing.md).
 
-`make release VERSION=0.1.1` cross-compiles the four targets, creates archives and SHA-256 checksums, and generates a source formula pinned to the release's Git revision. The release workflow builds native macOS Homebrew bottles and adds their checksums before publishing. The output directory must not already exist; build failures preserve partial artifacts. Run `sh scripts/check-install.sh workbox` to check an installed executable with temporary configuration and workspace directories. See [distribution and release instructions](docs/distribution.md).
+`make release VERSION=0.1.2` cross-compiles the four targets, creates archives and SHA-256 checksums, and generates a source formula pinned to the release's Git revision. The release workflow builds native macOS Homebrew bottles and adds their checksums before publishing. The output directory must not already exist; build failures preserve partial artifacts. Run `sh scripts/check-install.sh workbox` to check an installed executable with temporary configuration and workspace directories. See [distribution and release instructions](docs/distribution.md).
 
 Version 0.1 intentionally excludes script execution, worktree create/delete commands, baseline synchronization, branch overrides, migrations, import overwrite, background jobs and persistent workspace state.

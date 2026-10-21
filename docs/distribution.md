@@ -40,6 +40,12 @@ The formula pins a release tag and full Git revision. The release workflow build
 
 Publish the final `workbox.rb` release asset as `Formula/workbox.rb` in the tap. Use the final merged formula, not the pre-bottle definition from a local packaging run. These are standard Homebrew bottles; the installer does not remove quarantine attributes or change system security settings. Direct release archives remain unsigned/not notarized, so their first-run behavior depends on the download method and the user's normal macOS approval flow.
 
+## Uninstall
+
+Run `workbox uninstall --dry-run` to preview, then `workbox uninstall` to remove the CLI and its unmodified companion skills. This is available in 0.1.2 and later. Homebrew installs use Homebrew to remove all installed Workbox versions; direct downloads unlink only the running executable and its verified invocation link. Existing workspaces and configuration databases remain available if you reinstall. Shared dependency packages, the tap and Homebrew caches are managed separately by Homebrew.
+
+Default agent skill directories and locations recorded by `skill install` are checked before deletion. Custom locations from 0.1.1 need either `workbox uninstall --skill-path DIR` or an identical `workbox skill install --path DIR` after upgrading to register the location. Modified skills are retained and stop uninstall before deletion. Installation receipts contain canonical paths and file hashes under `${XDG_STATE_HOME:-~/.local/state}/workbox`, or `WORKBOX_STATE_HOME` when set. Use the same user/environment as installation. No configuration DB or repository registry is used to discover skills.
+
 ## Prepare a release
 
 Use Go 1.26+ in module mode:
@@ -47,14 +53,14 @@ Use Go 1.26+ in module mode:
 ```sh
 go test ./...
 go test -race ./...
-make release VERSION=0.1.1
+make release VERSION=0.1.2
 ```
 
 The new `dist` directory contains four CGO-free binaries in archives, checksums, and the initial Homebrew source formula. The output directory must not already exist. Packaging uses the Go standard library and Go tooling; failures preserve partial artifacts. Source paths are removed using `-trimpath`.
 
-Validate the native executable using `sh scripts/check-install.sh /path/to/workbox`, verify archive hashes and formula syntax, then test Homebrew installation using the exact public artifacts. The script isolates configuration and workspaces in a temporary directory. Test upgrade from the previous release once one exists. Cross-compilation alone does not prove runtime compatibility; CI runs tests on macOS and Linux.
+Validate the native executable using `sh scripts/check-install.sh /path/to/workbox`, verify archive hashes and formula syntax, then test Homebrew installation using the exact public artifacts. The script isolates home, installation records, configuration and workspaces in a temporary directory, then runs a real self-uninstall on a disposable executable copy. Test upgrade from the previous release once one exists. Cross-compilation alone does not prove runtime compatibility; CI runs tests on macOS and Linux.
 
-CI tests both systems. The release workflow runs on version tags such as `v0.1.0`, tests, packages a draft, builds and tests bottles, merges their metadata, then publishes all assets together. Public archive installation checks run after publication. Updating the separate tap is an explicit maintainer step; the workflow requires no cross-repository token.
+CI tests both systems. The release workflow runs on version tags such as `v0.1.0`, tests, packages a draft, builds and tests bottles, merges their metadata, then publishes all assets together. Public archive installation checks and a real Homebrew install/skill-install/uninstall check on an ephemeral macOS runner run after publication. Updating the separate tap is an explicit maintainer step; the workflow requires no cross-repository token.
 
 If publication fails after both bottles have been uploaded, run the Release workflow manually with that draft's `release_tag`. This resumes metadata merging, publication and public installation checks. It requires an existing draft and both macOS bottle metadata files; published releases cannot be overwritten through this recovery path. The publishing job explicitly trusts the formula created from the project's own release asset before asking Homebrew to merge it.
 

@@ -20,6 +20,7 @@ func skillApp(t *testing.T) (*app, string) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("WORKBOX_STATE_HOME", filepath.Join(home, "state"))
 	blocked := filepath.Join(home, "not-a-config-directory")
 	if err := os.WriteFile(blocked, []byte("keep"), 0600); err != nil {
 		t.Fatal(err)

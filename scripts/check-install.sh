@@ -5,6 +5,9 @@ set -eu
 binary=$(command -v "${1:-workbox}")
 smoke_root=$(mktemp -d "${TMPDIR:-/tmp}/workbox-install.XXXXXX")
 trap 'rm -rf "$smoke_root"' EXIT HUP INT TERM
+mkdir -p "$smoke_root/home"
+export HOME="$smoke_root/home"
+export WORKBOX_STATE_HOME="$smoke_root/state"
 
 call() {
   WORKBOX_CONFIG_HOME="$smoke_root/config" "$binary" "$@" --format json
@@ -30,4 +33,19 @@ call config export --output "$smoke_root/config.json"
 WORKBOX_CONFIG_HOME="$smoke_root/imported-config" "$binary" config import \
   --input "$smoke_root/config.json" --format json
 call workspace-config remove install-check
+# Exercise real self-unlink only on a disposable copy, never the supplied binary.
+mkdir -p "$smoke_root/bin"
+cp "$binary" "$smoke_root/bin/workbox"
+cp "$smoke_root/config/config.db" "$smoke_root/config-before.db"
+WORKBOX_CONFIG_HOME="$smoke_root/config" "$smoke_root/bin/workbox" skill install --format json
+WORKBOX_CONFIG_HOME="$smoke_root/config" "$smoke_root/bin/workbox" uninstall --dry-run --format json
+test -f "$smoke_root/bin/workbox"
+WORKBOX_CONFIG_HOME="$smoke_root/config" "$smoke_root/bin/workbox" uninstall --format json
+test ! -e "$smoke_root/bin/workbox"
+test ! -e "$smoke_root/skills/workbox"
+test ! -e "$HOME/.agents/skills/workbox"
+test ! -e "$WORKBOX_STATE_HOME"
+test -d "$smoke_root/workspace/.workbox/worktree"
+cmp "$smoke_root/config-before.db" "$smoke_root/config/config.db"
+test -x "$binary"
 printf '%s\n' 'Installation smoke check passed.'
