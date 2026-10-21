@@ -164,7 +164,9 @@ func installSkill(ctx context.Context, flags map[string]string) (data any, failu
 	}
 	if err := parent.Rename(stage, "workbox"); err != nil {
 		_ = parent.Remove("workbox") // Only removes the empty reservation.
-		return nil, ioFailure("Could not publish the skill")
+		failure := ioFailure("Could not publish the skill")
+		failure.Details["cause"] = err.Error()
+		return nil, failure
 	}
 	result["state"] = "installed"
 	return result, nil
