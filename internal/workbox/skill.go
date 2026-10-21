@@ -152,18 +152,14 @@ func installSkill(ctx context.Context, flags map[string]string) (data any, failu
 	if ctx.Err() != nil {
 		return nil, fail("INTERRUPTED", "Operation interrupted")
 	}
-	// Reserve the destination exclusively, then atomically replace our empty
-	// reservation with the complete tree. Never rename over a preexisting target.
-	if err := parent.Mkdir("workbox", 0755); err != nil {
+	// Publish the complete tree without ever replacing an existing target.
+	// os.Root.Rename cannot portably replace even an empty reserved directory.
+	if err := publishSkill(parent, stage); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			if exists, e := existingSkill(parent, files); exists || e != nil {
 				return result, e
 			}
 		}
-		return nil, ioFailure("Could not reserve the skill destination; retry the command")
-	}
-	if err := parent.Rename(stage, "workbox"); err != nil {
-		_ = parent.Remove("workbox") // Only removes the empty reservation.
 		failure := ioFailure("Could not publish the skill")
 		failure.Details["cause"] = err.Error()
 		return nil, failure

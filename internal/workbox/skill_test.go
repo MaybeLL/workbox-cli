@@ -243,13 +243,11 @@ func TestSkillInstallConcurrentPublish(t *testing.T) {
 	installed := 0
 	for result := range results {
 		if result.err != nil {
-			// A competitor can observe the empty destination reservation just
-			// before publication; it must preserve that directory and report a conflict.
-			if result.err.Code != "SKILL_CONFLICT" {
-				t.Fatal(result.err)
-			}
+			t.Fatal(result.err)
 		} else if object(result.data)["state"] == "installed" {
 			installed++
+		} else if object(result.data)["state"] != "unchanged" {
+			t.Fatal(result.data)
 		}
 	}
 	if installed != 1 {
