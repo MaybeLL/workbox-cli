@@ -85,7 +85,7 @@ func release(version, output string) error {
 	if err := os.Mkdir(filepath.Join(output, "homebrew"), 0755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(output, "homebrew", "workbox.rb"), []byte(formula(version, checksums)), 0644)
+	return os.WriteFile(filepath.Join(output, "homebrew", "workbox.rb"), []byte(cask(version, checksums)), 0644)
 }
 func environment(env []string, values map[string]string) []string {
 	result := []string{}
@@ -122,7 +122,7 @@ func pack(path, binary, notices string) (err error) {
 			err = e
 		}
 	}()
-	files := map[string]string{"workbox": binary, "README.md": "README.md", "LICENSE": "LICENSE", "THIRD_PARTY_NOTICES.txt": notices}
+	files := map[string]string{"workbox": binary, "README.md": "README.md", "LICENSE": "LICENSE", "THIRD_PARTY_NOTICES.txt": notices, "scripts/check-install.sh": "scripts/check-install.sh"}
 	if err := filepath.WalkDir("docs", func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -231,9 +231,9 @@ func writeNotices(path string) error {
 	}
 	return os.WriteFile(path, text.Bytes(), 0644)
 }
-func formula(version string, sums map[string]string) string {
+func cask(version string, sums map[string]string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Generated for the self-managed tap; publish alongside release v%s.\nclass Workbox < Formula\n  desc \"Reusable configurations and safe local Git workspace preparation\"\n  homepage \"https://github.com/MaybeLL/workbox-cli\"\n  version %q\n  license \"MIT\"\n\n", version, version)
+	fmt.Fprintf(&b, "# Generated for the self-managed tap; publish alongside release v%s.\ncask \"workbox\" do\n  version %q\n\n", version, version)
 	for _, system := range []struct{ goos, block string }{{"darwin", "on_macos"}, {"linux", "on_linux"}} {
 		fmt.Fprintln(&b, "  "+system.block+" do")
 		for _, arch := range []struct{ goarch, block string }{{"arm64", "on_arm"}, {"amd64", "on_intel"}} {
@@ -243,21 +243,13 @@ func formula(version string, sums map[string]string) string {
 		fmt.Fprintln(&b, "  end")
 		fmt.Fprintln(&b)
 	}
-	b.WriteString(`  depends_on "git"
+	b.WriteString(`  name "Workbox"
+  desc "Reusable configurations and safe local Git workspace preparation"
+  homepage "https://github.com/MaybeLL/workbox-cli"
 
-  def install
-    bin.install "workbox"
-    doc.install "docs"
-  end
+  depends_on formula: "git"
 
-  test do
-    assert_match version.to_s, shell_output("#{bin}/workbox --version")
-    ENV["WORKBOX_CONFIG_HOME"] = (testpath/"config").to_s
-    system bin/"workbox", "workspace-config", "add", "empty"
-    output = shell_output("#{bin}/workbox workspace create --config empty --path #{testpath}/workspace --format json")
-    assert_match '"state":"prepared"', output
-    assert_predicate testpath/"workspace/.workbox/worktree", :directory?
-  end
+  binary "workbox"
 end
 `)
 	return b.String()

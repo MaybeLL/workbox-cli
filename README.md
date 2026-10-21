@@ -6,7 +6,14 @@ Workbox is written in Go and builds to a single executable with a bundled, pure-
 
 ## Install
 
-The confirmed public distribution channels are GitHub Releases and a self-managed Homebrew tap. Public releases and the tap are not available yet; see the [distribution plan](docs/distribution.md) for the intended installation and upgrade experience.
+Install the prebuilt executable with Homebrew:
+
+```sh
+brew install --cask MaybeLL/tap/workbox
+workbox --version
+```
+
+Or download the matching archive from [GitHub Releases](https://github.com/MaybeLL/workbox-cli/releases), verify its checksum and put `workbox` in PATH. See [installation and release instructions](docs/distribution.md).
 
 To build from this checkout, use Go 1.26+:
 
@@ -15,7 +22,7 @@ make build
 ./bin/workbox --version
 ```
 
-Prebuilt release executables require no Go, Python, C compiler, or separately installed SQLite library. Add the executable's directory to PATH to use `workbox` directly. The SQLite schema and portable configuration package are compatible with the earlier Python MVP; no data migration is needed.
+Prebuilt release executables require no Go, Python, C compiler, or separately installed SQLite library. Add the executable's directory to PATH to use `workbox` directly. Configuration schema version 1 remains compatible across implementations; no data migration is needed.
 
 ## First workspace
 
@@ -139,6 +146,6 @@ go test -race ./...
 
 Tests isolate all configuration state and Git configuration in temporary directories. HTTPS-shaped URLs are redirected by Git's `insteadOf` to temporary local remotes, so actual branch queries, clones, status, submodules, and linked worktrees run without network or user credentials. Fault injection covers concurrent writes, path races, cancellation, timeout and partial clone failures. Actual permission failures and process signals are also checked. No tests touch the user's DB or working repositories. See [test contracts](docs/testing.md).
 
-`make release VERSION=0.1.0` cross-compiles the four targets, creates archives and SHA-256 checksums, and generates `dist/homebrew/workbox.rb` with the real archive hashes. The output directory must not already exist; build failures preserve partial artifacts. See [distribution and release instructions](docs/distribution.md).
+`make release VERSION=0.1.0` cross-compiles the four targets, creates archives and SHA-256 checksums, and generates `dist/homebrew/workbox.rb` as a binary cask with the real archive hashes. The output directory must not already exist; build failures preserve partial artifacts. Run `sh scripts/check-install.sh workbox` to check an installed executable with temporary configuration and workspace directories. See [distribution and release instructions](docs/distribution.md).
 
 Version 0.1 intentionally excludes script execution, worktree create/delete commands, baseline synchronization, branch overrides, migrations, import overwrite, background jobs and persistent workspace state.

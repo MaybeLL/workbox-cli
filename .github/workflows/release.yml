@@ -24,3 +24,36 @@ jobs:
           gh release create "$GITHUB_REF_NAME"
           dist/*.tar.gz dist/*_checksums.txt dist/homebrew/workbox.rb
           --verify-tag --generate-notes
+  verify-install:
+    needs: release
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download and test the public release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; esac
+          case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; x86_64) arch=amd64 ;; esac
+          version="${GITHUB_REF_NAME#v}"
+          archive="workbox_${version}_${os}_${arch}.tar.gz"
+          destination="$RUNNER_TEMP/workbox-public-install"
+          mkdir -p "$destination"
+          gh release download "$GITHUB_REF_NAME" --pattern "$archive" \
+            --pattern "workbox_${version}_checksums.txt" --dir "$destination"
+          cd "$destination"
+          if [ "$os" = darwin ]; then
+            shasum -a 256 -c "workbox_${version}_checksums.txt" --ignore-missing
+          else
+            sha256sum --check --ignore-missing "workbox_${version}_checksums.txt"
+          fi
+          tar -xzf "$archive"
+          sh scripts/check-install.sh "$destination/workbox"

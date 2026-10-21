@@ -1,6 +1,6 @@
 # Distribution and releases
 
-Confirmed on 2026-10-21: workbox uses GitHub Releases and a self-managed Homebrew tap. The implementation is Go with a pure-Go SQLite driver. Precompiled binaries need Git but no Go, Python or separately installed SQLite. Neither public channel has been published yet.
+Workbox is distributed through GitHub Releases and the self-managed `MaybeLL/homebrew-tap`. The implementation is Go with a pure-Go SQLite driver. Precompiled binaries need Git but no Go, Python or separately installed SQLite.
 
 ## GitHub Releases
 
@@ -21,20 +21,20 @@ Ensure `~/.local/bin` is in PATH. Linux can use `sha256sum`. Release binaries ar
 
 ## Homebrew
 
-Maintain the installation definition in the planned `MaybeLL/homebrew-tap` repository. After the tap and a downloadable release are published and tested, the intended installation command is:
+The `MaybeLL/homebrew-tap` repository contains `Casks/workbox.rb`. Install with:
 
 ```sh
-brew install MaybeLL/tap/workbox
+brew install --cask MaybeLL/tap/workbox
 ```
 
-The intended upgrade flow is:
+Upgrade with:
 
 ```sh
 brew update
-brew upgrade MaybeLL/tap/workbox
+brew upgrade --cask MaybeLL/tap/workbox
 ```
 
-The generated definition selects precompiled archives by system and architecture, pins real hashes, and declares Git as a dependency. Copy `dist/homebrew/workbox.rb` to `Formula/workbox.rb` in the tap for each release, test, then publish the tap update. No application to Homebrew's official repositories is required.
+The cask selects precompiled archives by system and architecture, pins real hashes, and declares Git as a dependency. Unlike a source formula, binary casks do not enter Homebrew's compilation phase. Copy `dist/homebrew/workbox.rb` to `Casks/workbox.rb` in the tap for each release, test, then publish the tap update. No application to Homebrew's official repositories is required.
 
 ## Prepare a release
 
@@ -46,14 +46,10 @@ go test -race ./...
 make release VERSION=0.1.0
 ```
 
-The new `dist` directory contains four CGO-free binaries in archives, checksums, and the generated Homebrew definition. The output directory must not already exist. Packaging uses the Go standard library and Go tooling; failures preserve partial artifacts. Source paths are removed using `-trimpath`.
+The new `dist` directory contains four CGO-free binaries in archives, checksums, and the generated Homebrew cask. The output directory must not already exist. Packaging uses the Go standard library and Go tooling; failures preserve partial artifacts. Source paths are removed using `-trimpath`.
 
-Validate the native executable in an isolated empty-workspace flow, verify archive hashes and Homebrew definition syntax, then test Homebrew installation using the exact artifacts. Test upgrade from the previous release once one exists. Cross-compilation alone does not prove runtime compatibility; CI runs tests on macOS and Linux.
+Validate the native executable using `sh scripts/check-install.sh /path/to/workbox`, verify archive hashes and cask syntax, then test Homebrew installation using the exact public artifacts. The script isolates configuration and workspaces in a temporary directory. Test upgrade from the previous release once one exists. Cross-compilation alone does not prove runtime compatibility; CI runs tests on macOS and Linux.
 
 CI tests both systems. The release workflow runs on version tags such as `v0.1.0`, tests, packages and publishes GitHub release assets, including the generated tap definition. Updating the separate tap is an explicit maintainer step; the workflow requires no cross-repository token.
 
-## Current state
-
-The public project repository exists. The implementation is local and staged for review. No public application release or Homebrew tap has been published, so the commands above describe the planned distribution experience.
-
-Source commits, tags, releases and tap updates follow existing publication authorization. The current checkout remains local for review; no publication has been triggered.
+Release artifacts and the cask must be published together: a cask version is usable only after its referenced archives are available. Never replace an existing release artifact under the same version; use a new patch version for a correction.
