@@ -2,6 +2,8 @@
 
 Workbox is distributed through GitHub Releases and the self-managed `MaybeLL/homebrew-tap`. The implementation is Go with a pure-Go SQLite driver. Precompiled binaries need Git but no Go, Python or separately installed SQLite.
 
+Starting with 0.1.1, run `workbox skill install` after installing the executable to install its bundled Codex skill into `~/.agents/skills/workbox`. Installing or upgrading the executable does not automatically write to an agent's configuration. The skill and its references are embedded in each binary and also included under `skills/workbox` in release archives. Skill installation works offline; `--path DIR` selects a different skills parent directory. Different existing content is preserved and reported as a conflict.
+
 ## GitHub Releases
 
 Publish `workbox_VERSION_OS_ARCH.tar.gz` and `workbox_VERSION_checksums.txt` on the project's Releases page. Targets are `darwin` and `linux`, each with `arm64` and `amd64`. Each archive contains the executable, project license, bundled dependency notices, README and guides. Select the matching target, verify its SHA-256, extract it and put `workbox` in PATH.
@@ -45,7 +47,7 @@ Use Go 1.26+ in module mode:
 ```sh
 go test ./...
 go test -race ./...
-make release VERSION=0.1.0
+make release VERSION=0.1.1
 ```
 
 The new `dist` directory contains four CGO-free binaries in archives, checksums, and the initial Homebrew source formula. The output directory must not already exist. Packaging uses the Go standard library and Go tooling; failures preserve partial artifacts. Source paths are removed using `-trimpath`.

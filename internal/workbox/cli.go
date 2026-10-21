@@ -40,11 +40,14 @@ const usage = `Usage: workbox COMMAND [--format text|json]
   workspace plan --config NAME --path DIR
   workspace create --config NAME --path DIR
   workspace status --path DIR
+  skill install [--path SKILLS_DIRECTORY]
   --help
   --version
 
 Every command supports --format json; text is the default.
 Scripts are stored and returned to the caller, never executed.
+Skill install copies the bundled skill to ~/.agents/skills/workbox by default.
+--path selects a different skills parent directory. Existing differences are never overwritten.
 `
 
 func outputFormat(args []string) ([]string, string, *Failure) {
@@ -129,6 +132,11 @@ func parse(args []string) (command, *Failure) {
 		default:
 			return c, bad
 		}
+	case "skill":
+		if c.action != "install" {
+			return c, bad
+		}
+		allowed["path"] = true
 	default:
 		return c, bad
 	}
@@ -182,6 +190,9 @@ func (a *app) execute(ctx context.Context, c command) (any, *Failure) {
 	if ctx.Err() != nil {
 		return nil, fail("INTERRUPTED", "Operation interrupted")
 	}
+	if c.entity == "skill" {
+		return installSkill(ctx, c.flags)
+	}
 	if c.entity == "workspace" && c.action == "status" {
 		return a.status(ctx, c.flags["path"])
 	}
@@ -219,7 +230,7 @@ func (a *app) run(ctx context.Context, args []string, stdout, stderr io.Writer, 
 			ver = ver || arg == "--version"
 		}
 		if help {
-			data = map[string]any{"usage": usage, "commands": []string{"repo-config add/list/show/update/remove", "workspace-config add/list/show/update/remove", "config export/import", "workspace plan/create/status"}}
+			data = map[string]any{"usage": usage, "commands": []string{"repo-config add/list/show/update/remove", "workspace-config add/list/show/update/remove", "config export/import", "workspace plan/create/status", "skill install"}}
 		} else if ver && len(clean) == 1 {
 			data = map[string]string{"program": "workbox", "version": version}
 		} else {

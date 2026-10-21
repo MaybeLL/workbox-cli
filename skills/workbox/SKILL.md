@@ -1,0 +1,26 @@
+---
+name: workbox
+description: Manage reusable repository and workspace configurations with the workbox CLI, prepare Git workspaces, inspect their status, and guide initialization or development in their Git worktrees. Use when the user asks to use workbox or work with a workbox workspace.
+---
+
+# Workbox
+
+Use the installed `workbox` executable. Check `workbox --version` and use `workbox --help` for the exact command syntax. If it is missing, install it using the user's chosen method; Homebrew users can run `brew install MaybeLL/tap/workbox`.
+
+## Configuration and preparation
+
+Use `--format json` for commands. Check the exit code, `ok`, `error`, and any partial `data`. An interrupted or failed create can leave a useful directory; inspect the result before deciding the next action.
+
+- Discover existing names with `repo-config list` and `workspace-config list` before creating or selecting configurations. A repo configuration specifies a remote URL and an exact existing default branch. Do not guess either.
+- A workspace configuration selects repo names and relative target directories through a JSON file, for example `[{"repo":"api","target_dir":"repos/api"}]`. It can also store an initialization script using `--init-script-file`.
+- Use `config export --output FILE` and `config import --input FILE` to transfer configuration. Import rejects conflicting content rather than overwriting it.
+- Use `workspace plan --config NAME --path DIR` to check a proposed workspace, then `workspace create --config NAME --path DIR --format json` to prepare it. The target must not exist and its parent must exist. Plan does not reserve a target or freeze a configuration.
+- Use `workspace status --path DIR --format json` to inspect real checkout state. It uses local Git state, without contacting remotes or consulting the configuration DB.
+
+## Initialization and development
+
+Read [the initialization and worktree workflow](references/agent-guide.md) when initializing a prepared workspace or developing within one. It defines how to verify the returned script's artifacts and keep baseline work files and HEAD unchanged.
+
+`workspace create` returns `state: "prepared"` and the exact `init_script` from that create's snapshot. The CLI never runs the script. Preparation alone does not establish successful initialization; review the returned script within the user's authorization and verify its intended artifacts.
+
+There are no `workbox worktree` commands in this version. Use native Git worktrees under the workspace's `.workbox/worktree/` directory according to the referenced workflow. Keep development changes and outputs in the development worktree.

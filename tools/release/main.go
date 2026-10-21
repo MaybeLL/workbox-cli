@@ -135,16 +135,18 @@ func pack(path, binary, notices string) (err error) {
 		}
 	}()
 	files := map[string]string{"workbox": binary, "README.md": "README.md", "LICENSE": "LICENSE", "THIRD_PARTY_NOTICES.txt": notices, "scripts/check-install.sh": "scripts/check-install.sh"}
-	if err := filepath.WalkDir("docs", func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
+	for _, directory := range []string{"docs", "skills/workbox"} {
+		if err := filepath.WalkDir(directory, func(path string, entry os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !entry.IsDir() {
+				files[filepath.ToSlash(path)] = path
+			}
+			return nil
+		}); err != nil {
 			return err
 		}
-		if !entry.IsDir() {
-			files[filepath.ToSlash(path)] = path
-		}
-		return nil
-	}); err != nil {
-		return err
 	}
 	names := []string{}
 	for name := range files {

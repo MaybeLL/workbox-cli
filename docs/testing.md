@@ -2,6 +2,8 @@
 
 Use Go modules (not vendor mode). The native Go test backend is sufficient; no xgo mocking is used. Standard assertions, per-test temporary directories and `t.Setenv` isolate tests from user configuration and repositories. Environment-changing tests remain sequential.
 
+Skill installation uses real files under temporary homes and custom skills directories. Tests cover default and Unicode/custom paths, complete embedded references, repeated installs preserving file timestamps, modified/missing/extra content, file/directory/symlink conflicts, invalid arguments, an unwritable parent shape, pre-cancellation and concurrent publication. Conflicts must preserve the entire existing tree, including link targets; concurrent publishers must leave one complete skill and no staging directories. An unusable configuration location and nil Git runner verify that installation needs neither the DB nor Git. No dependency mocks are needed.
+
 The configuration/CLI tests cover missing-DB reads, strict parser and JSON envelopes, branch/tag validation, save failures preserving content, reference protection, file replacement/clearing, UTF-8 and original script bytes, schema failures, legacy schema compatibility, and configuration-root precedence.
 
 The workspace tests verify plan makes no directories, create returns only prepared, full-history cloning and actual commits, script handoff without execution, independent plan/create snapshots, in-flight script snapshot consistency, exclusive targets and symlink races, and partial results after second-clone failure or cancellation. The handoff integration test separately executes and checks a declared artifact and verifies baseline HEAD/files remain unchanged.

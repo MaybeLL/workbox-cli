@@ -13,6 +13,11 @@ call() {
 git --version
 call --version
 call --help
+call skill install --path "$smoke_root/skills"
+test -f "$smoke_root/skills/workbox/SKILL.md"
+test -f "$smoke_root/skills/workbox/references/agent-guide.md"
+call skill install --path "$smoke_root/skills"
+test ! -e "$smoke_root/config"
 call repo-config list
 call workspace-config add install-check
 call workspace-config show install-check
