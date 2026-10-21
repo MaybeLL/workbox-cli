@@ -24,7 +24,15 @@ var targets = []string{"darwin/arm64", "darwin/amd64", "linux/arm64", "linux/amd
 func main() {
 	version := flag.String("version", "", "release version, without v")
 	output := flag.String("output", "dist", "new output directory (must not exist)")
+	notices := flag.String("notices-output", "", "write bundled dependency notices only")
 	flag.Parse()
+	if *notices != "" {
+		if err := writeNotices(*notices); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if !regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$`).MatchString(*version) {
 		fmt.Fprintln(os.Stderr, "--version requires a semantic version without v")
 		os.Exit(2)
@@ -85,7 +93,11 @@ func release(version, output string) error {
 	if err := os.Mkdir(filepath.Join(output, "homebrew"), 0755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(output, "homebrew", "workbox.rb"), []byte(cask(version, checksums)), 0644)
+	revision, err := exec.Command("git", "rev-parse", "HEAD").Output()
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(output, "homebrew", "workbox.rb"), []byte(formula(version, strings.TrimSpace(string(revision)))), 0644)
 }
 func environment(env []string, values map[string]string) []string {
 	result := []string{}
@@ -231,26 +243,28 @@ func writeNotices(path string) error {
 	}
 	return os.WriteFile(path, text.Bytes(), 0644)
 }
-func cask(version string, sums map[string]string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "# Generated for the self-managed tap; publish alongside release v%s.\ncask \"workbox\" do\n  version %q\n\n", version, version)
-	for _, system := range []struct{ goos, block string }{{"darwin", "on_macos"}, {"linux", "on_linux"}} {
-		fmt.Fprintln(&b, "  "+system.block+" do")
-		for _, arch := range []struct{ goarch, block string }{{"arm64", "on_arm"}, {"amd64", "on_intel"}} {
-			name := "workbox_" + version + "_" + system.goos + "_" + arch.goarch + ".tar.gz"
-			fmt.Fprintf(&b, "    %s do\n      url %q\n      sha256 %q\n    end\n", arch.block, "https://github.com/MaybeLL/workbox-cli/releases/download/v"+version+"/"+name, sums[name])
-		}
-		fmt.Fprintln(&b, "  end")
-		fmt.Fprintln(&b)
-	}
-	b.WriteString(`  name "Workbox"
+func formula(version, revision string) string {
+	return fmt.Sprintf(`class Workbox < Formula
   desc "Reusable configurations and safe local Git workspace preparation"
   homepage "https://github.com/MaybeLL/workbox-cli"
+  url "https://github.com/MaybeLL/workbox-cli.git", tag: "v%s", revision: %q
+  version %q
+  license "MIT"
 
-  depends_on formula: "git"
+  depends_on "go" => :build
+  uses_from_macos "git"
 
-  binary "workbox"
+  def install
+    ENV["CGO_ENABLED"] = "0"
+    system "go", "build", *std_go_args(ldflags: "-s -w -X main.version=#{version}"), "./cmd/workbox"
+    system "go", "run", "./tools/release", "--notices-output", "THIRD_PARTY_NOTICES.txt"
+    doc.install "THIRD_PARTY_NOTICES.txt", "docs"
+    pkgshare.install "scripts/check-install.sh"
+  end
+
+  test do
+    system "sh", pkgshare/"check-install.sh", bin/"workbox"
+  end
 end
-`)
-	return b.String()
+`, version, revision, version)
 }

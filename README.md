@@ -9,7 +9,7 @@ Workbox is written in Go and builds to a single executable with a bundled, pure-
 Install the prebuilt executable with Homebrew:
 
 ```sh
-brew install --cask MaybeLL/tap/workbox
+brew install MaybeLL/tap/workbox
 workbox --version
 ```
 
@@ -146,6 +146,6 @@ go test -race ./...
 
 Tests isolate all configuration state and Git configuration in temporary directories. HTTPS-shaped URLs are redirected by Git's `insteadOf` to temporary local remotes, so actual branch queries, clones, status, submodules, and linked worktrees run without network or user credentials. Fault injection covers concurrent writes, path races, cancellation, timeout and partial clone failures. Actual permission failures and process signals are also checked. No tests touch the user's DB or working repositories. See [test contracts](docs/testing.md).
 
-`make release VERSION=0.1.0` cross-compiles the four targets, creates archives and SHA-256 checksums, and generates `dist/homebrew/workbox.rb` as a binary cask with the real archive hashes. The output directory must not already exist; build failures preserve partial artifacts. Run `sh scripts/check-install.sh workbox` to check an installed executable with temporary configuration and workspace directories. See [distribution and release instructions](docs/distribution.md).
+`make release VERSION=0.1.0` cross-compiles the four targets, creates archives and SHA-256 checksums, and generates a source formula pinned to the release's Git revision. The release workflow builds native macOS Homebrew bottles and adds their checksums before publishing. The output directory must not already exist; build failures preserve partial artifacts. Run `sh scripts/check-install.sh workbox` to check an installed executable with temporary configuration and workspace directories. See [distribution and release instructions](docs/distribution.md).
 
 Version 0.1 intentionally excludes script execution, worktree create/delete commands, baseline synchronization, branch overrides, migrations, import overwrite, background jobs and persistent workspace state.

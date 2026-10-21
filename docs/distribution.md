@@ -21,20 +21,22 @@ Ensure `~/.local/bin` is in PATH. Linux can use `sha256sum`. Release binaries ar
 
 ## Homebrew
 
-The `MaybeLL/homebrew-tap` repository contains `Casks/workbox.rb`. Install with:
+The `MaybeLL/homebrew-tap` repository contains `Formula/workbox.rb`. Install with:
 
 ```sh
-brew install --cask MaybeLL/tap/workbox
+brew install MaybeLL/tap/workbox
 ```
 
 Upgrade with:
 
 ```sh
 brew update
-brew upgrade --cask MaybeLL/tap/workbox
+brew upgrade MaybeLL/tap/workbox
 ```
 
-The cask selects precompiled archives by system and architecture, pins real hashes, and declares Git as a dependency. Unlike a source formula, binary casks do not enter Homebrew's compilation phase. Copy `dist/homebrew/workbox.rb` to `Casks/workbox.rb` in the tap for each release, test, then publish the tap update. No application to Homebrew's official repositories is required.
+The formula pins a release tag and full Git revision. The release workflow builds native macOS bottles on macOS 15 for ARM64 and Intel, merges their verified checksums into the formula, then publishes the complete release. Matching systems install the bottle; other systems build from the pinned source with Homebrew-managed Go. Git uses the macOS-provided tool where available and is otherwise a dependency. No application to Homebrew's official repositories is required.
+
+Publish the final `workbox.rb` release asset as `Formula/workbox.rb` in the tap. Use the final merged formula, not the pre-bottle definition from a local packaging run. These are standard Homebrew bottles; the installer does not remove quarantine attributes or change system security settings. Direct release archives remain unsigned/not notarized, so their first-run behavior depends on the download method and the user's normal macOS approval flow.
 
 ## Prepare a release
 
@@ -46,10 +48,10 @@ go test -race ./...
 make release VERSION=0.1.0
 ```
 
-The new `dist` directory contains four CGO-free binaries in archives, checksums, and the generated Homebrew cask. The output directory must not already exist. Packaging uses the Go standard library and Go tooling; failures preserve partial artifacts. Source paths are removed using `-trimpath`.
+The new `dist` directory contains four CGO-free binaries in archives, checksums, and the initial Homebrew source formula. The output directory must not already exist. Packaging uses the Go standard library and Go tooling; failures preserve partial artifacts. Source paths are removed using `-trimpath`.
 
-Validate the native executable using `sh scripts/check-install.sh /path/to/workbox`, verify archive hashes and cask syntax, then test Homebrew installation using the exact public artifacts. The script isolates configuration and workspaces in a temporary directory. Test upgrade from the previous release once one exists. Cross-compilation alone does not prove runtime compatibility; CI runs tests on macOS and Linux.
+Validate the native executable using `sh scripts/check-install.sh /path/to/workbox`, verify archive hashes and formula syntax, then test Homebrew installation using the exact public artifacts. The script isolates configuration and workspaces in a temporary directory. Test upgrade from the previous release once one exists. Cross-compilation alone does not prove runtime compatibility; CI runs tests on macOS and Linux.
 
-CI tests both systems. The release workflow runs on version tags such as `v0.1.0`, tests, packages and publishes GitHub release assets, including the generated tap definition. Updating the separate tap is an explicit maintainer step; the workflow requires no cross-repository token.
+CI tests both systems. The release workflow runs on version tags such as `v0.1.0`, tests, packages a draft, builds and tests bottles, merges their metadata, then publishes all assets together. Public archive installation checks run after publication. Updating the separate tap is an explicit maintainer step; the workflow requires no cross-repository token.
 
-Release artifacts and the cask must be published together: a cask version is usable only after its referenced archives are available. Never replace an existing release artifact under the same version; use a new patch version for a correction.
+Publish the tap formula after its referenced release archives and bottles are available. Never replace an existing published release artifact under the same version; use a new patch version for a correction.

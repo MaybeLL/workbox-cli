@@ -17,15 +17,66 @@ jobs:
       - run: go test ./...
       - name: Package release and Homebrew definition
         run: go run ./tools/release --version "${GITHUB_REF_NAME#v}" --output dist
-      - name: Publish GitHub release
+      - name: Prepare draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
           gh release create "$GITHUB_REF_NAME"
           dist/*.tar.gz dist/*_checksums.txt dist/homebrew/workbox.rb
-          --verify-tag --generate-notes
-  verify-install:
+          --verify-tag --generate-notes --draft
+  bottle:
     needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+    steps:
+      - name: Build and test native Homebrew bottle
+        shell: bash
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          brew tap-new maybell/tap
+          tap="$(brew --repository maybell/tap)"
+          gh release download "$GITHUB_REF_NAME" --pattern workbox.rb --dir "$RUNNER_TEMP/recipe"
+          cp "$RUNNER_TEMP/recipe/workbox.rb" "$tap/Formula/workbox.rb"
+          git -C "$tap" add Formula/workbox.rb
+          git -C "$tap" commit -m "Build workbox ${GITHUB_REF_NAME}"
+          brew install --build-bottle maybell/tap/workbox
+          brew test maybell/tap/workbox
+          mkdir -p "$RUNNER_TEMP/bottles"
+          cd "$RUNNER_TEMP/bottles"
+          brew bottle --json --no-rebuild \
+            --root-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME" \
+            maybell/tap/workbox
+          gh release upload "$GITHUB_REF_NAME" ./*.bottle.tar.gz ./*.bottle.json --clobber
+  publish:
+    needs: bottle
+    runs-on: macos-15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+    steps:
+      - name: Merge bottle metadata and publish complete release
+        shell: bash
+        run: |
+          brew tap-new maybell/tap
+          tap="$(brew --repository maybell/tap)"
+          gh release download "$GITHUB_REF_NAME" --pattern workbox.rb \
+            --pattern '*.bottle.json' --dir "$RUNNER_TEMP/recipe"
+          cp "$RUNNER_TEMP/recipe/workbox.rb" "$tap/Formula/workbox.rb"
+          brew bottle --merge --write --no-commit "$RUNNER_TEMP/recipe/"*.bottle.json
+          gh release upload "$GITHUB_REF_NAME" "$tap/Formula/workbox.rb" --clobber
+          gh release edit "$GITHUB_REF_NAME" --draft=false
+  verify-install:
+    needs: publish
     permissions:
       contents: read
     strategy:
