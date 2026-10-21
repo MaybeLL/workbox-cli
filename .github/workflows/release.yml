@@ -55,6 +55,10 @@ jobs:
           brew bottle --json --no-rebuild \
             --root-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME" \
             maybell/tap/workbox
+          # Homebrew's local filename uses --; its download URL uses a single -.
+          for bottle in ./*.bottle.tar.gz; do
+            mv "$bottle" "${bottle/workbox--/workbox-}"
+          done
           gh release upload "$GITHUB_REF_NAME" ./*.bottle.tar.gz ./*.bottle.json --clobber
   publish:
     needs: bottle
