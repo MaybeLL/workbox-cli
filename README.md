@@ -4,6 +4,8 @@ Prepare local Git workspaces from reusable configurations. `workbox` stores repo
 
 Workbox is written in Go and builds to a single executable with a bundled, pure-Go SQLite engine. Users need Git, with existing HTTPS/SSH authentication configured. Supported build targets are macOS and Linux on ARM64 and AMD64; Windows is not supported in this release. Development checkouts use native Git worktrees inside the same workspace.
 
+设计与职责边界见[设计说明（中文）](docs/design.md)。
+
 ## Install
 
 Install the prebuilt executable with Homebrew:
