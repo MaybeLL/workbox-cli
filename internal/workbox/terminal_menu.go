@@ -5,20 +5,30 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/orochaa/go-clack/core"
+	"github.com/orochaa/go-clack/prompts/symbols"
+	"github.com/orochaa/go-clack/prompts/theme"
 	"golang.org/x/sys/unix"
+	"golang.org/x/term"
 )
 
-// Menus use noncanonical input only while focused. ISIG remains enabled so
-// the existing signal context handles Ctrl+C and terminal state is restored.
+// Use Clack's selection model and theme with Workbox's synchronous, cancellable
+// input loop. The upstream Run method blocks on ReadRune during cancellation.
+// Keeping terminal ownership here also preserves SIGINT and avoids background
+// readers consuming input intended for the next prompt.
 func terminalSelect(ctx context.Context, w io.Writer, title string, options []string, selected int) (int, *Failure) {
+	if len(options) == 0 {
+		return 0, fail("INVALID_ARGUMENTS", "Menu has no options")
+	}
 	if selected < 0 || selected >= len(options) {
 		selected = 0
 	}
-	if os.Getenv("TERM") == "dumb" {
+	if plainPrompt(w) {
 		return terminalSelectPlain(ctx, w, title, options, selected)
 	}
 	fd := int(os.Stdin.Fd())
@@ -34,46 +44,124 @@ func terminalSelect(ctx context.Context, w io.Writer, title string, options []st
 		return 0, ioFailure("Could not enable menu input")
 	}
 	defer terminalSet(fd, old)
-	fmt.Fprintln(w, "\n"+title)
-	lines := len(options) + 1
+	fmt.Fprint(w, "\x1b[?25l")
+	defer fmt.Fprint(w, "\x1b[?25h")
+	// Use a non-terminal formatting sink: Clack then uses its fixed 80-column
+	// fallback. Its formatter cannot safely handle zero widths or mid-frame
+	// resizing. Actual frames are written only through w below.
+	layout, err := os.Open(os.DevNull)
+	if err != nil {
+		return 0, ioFailure("Could not prepare terminal layout")
+	}
+	defer layout.Close()
+	p := newClackSelect(layout, title, options, selected)
+	lines := 0
 	draw := func() {
-		for i, label := range options {
-			marker := "  "
-			if i == selected {
-				marker = "> "
-			}
-			if i == selected && os.Getenv("NO_COLOR") == "" {
-				fmt.Fprintf(w, "\r\x1b[2K\x1b[1m%s%s\x1b[0m\n", marker, label)
-			} else {
-				fmt.Fprintf(w, "\r\x1b[2K%s%s\n", marker, label)
-			}
+		if lines > 0 {
+			fmt.Fprintf(w, "\x1b[%dA\r\x1b[J", lines)
 		}
-		fmt.Fprint(w, "\r\x1b[2K  ↑/↓ select · Enter confirm · Esc cancel\n")
+		frame := p.Render(&p.Prompt)
+		// go-clack's color detection checks the terminal before NO_COLOR. Enforce
+		// our public no-color contract without mutating library global state.
+		if os.Getenv("NO_COLOR") != "" {
+			frame = clackColor.ReplaceAllString(frame, "")
+		}
+		frame = strings.ReplaceAll(frame, "\r\n", "\n")
+		fmt.Fprintln(w, frame)
+		lines = strings.Count(frame, "\n") + 1
 	}
 	draw()
 	for {
 		key, e := terminalKey(ctx, fd)
 		if e != nil {
+			p.State = core.CancelState
+			draw()
 			return 0, e
 		}
 		switch key {
 		case "up", "k":
-			selected = (selected + len(options) - 1) % len(options)
+			// Preserve wraparound navigation from the existing Workbox menus.
+			if p.CursorIndex == 0 {
+				p.Emit(core.KeyEvent, &core.Key{Name: core.EndKey})
+			} else {
+				p.Emit(core.KeyEvent, &core.Key{Name: core.UpKey})
+			}
 		case "down", "j":
-			selected = (selected + 1) % len(options)
+			if p.CursorIndex == len(options)-1 {
+				p.Emit(core.KeyEvent, &core.Key{Name: core.HomeKey})
+			} else {
+				p.Emit(core.KeyEvent, &core.Key{Name: core.DownKey})
+			}
 		case "enter":
-			fmt.Fprintf(w, "\x1b[%dA\r\x1b[J", lines)
-			fmt.Fprintf(w, "  %s\n", options[selected])
-			return selected, nil
+			p.State = core.SubmitState
+			draw()
+			return p.Value, nil
 		case "escape", "cancel":
+			p.State = core.CancelState
+			draw()
 			return 0, fail("INTERRUPTED", "Initialization cancelled")
 		default:
 			continue
 		}
-		fmt.Fprintf(w, "\x1b[%dA", lines)
+		p.State = core.ActiveState
+		if plainPrompt(w) {
+			fmt.Fprint(w, "\nTerminal size changed; continuing with numbered choices.\n")
+			if err := terminalSet(fd, old); err != nil {
+				return 0, ioFailure("Could not restore terminal")
+			}
+			fmt.Fprint(w, "\x1b[?25h")
+			return terminalSelectPlain(ctx, w, title, options, p.Value)
+		}
 		draw()
 	}
 }
+
+var clackColor = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func plainPrompt(w io.Writer) bool {
+	if os.Getenv("TERM") == "dumb" {
+		return true
+	}
+	if f, ok := w.(*os.File); ok {
+		width, height, err := term.GetSize(int(f.Fd()))
+		// The upstream formatter is byte-oriented. In small viewports use the
+		// scrolling numbered fallback instead of risking broken wrapped frames.
+		if err != nil || width < 80 || height < 18 {
+			return true
+		}
+	}
+	return false
+}
+
+func newClackSelect(output *os.File, title string, options []string, selected int) *core.SelectPrompt[int] {
+	choices := make([]*core.SelectOption[int], len(options))
+	for i, label := range options {
+		choices[i] = &core.SelectOption[int]{Label: label, Value: i}
+	}
+	return core.NewSelectPrompt(core.SelectPromptParams[int]{
+		Output: output, InitialValue: selected, Options: choices,
+		Render: func(p *core.SelectPrompt[int]) string {
+			value := p.Options[p.CursorIndex].Label
+			active := value
+			if p.State != core.SubmitState && p.State != core.CancelState {
+				rows := make([]string, len(p.Options))
+				for i, choice := range p.Options {
+					marker := symbols.RADIO_INACTIVE
+					if i == p.CursorIndex {
+						marker = symbols.RADIO_ACTIVE
+					}
+					rows[i] = marker + " " + choice.Label
+				}
+				active = strings.Join(rows, "\n") + "\n↑/↓ select · Enter confirm · Esc cancel"
+			}
+			if p.State == core.CancelState {
+				value = "Cancelled"
+			}
+			return theme.ApplyTheme(theme.ThemeParams[int]{Context: p.Prompt, Message: title, Value: value, ValueWithCursor: active})
+		},
+	})
+}
+
 func terminalSelectPlain(ctx context.Context, w io.Writer, title string, options []string, selected int) (int, *Failure) {
 	fmt.Fprintln(w, "\n"+title)
 	for i, label := range options {

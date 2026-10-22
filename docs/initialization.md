@@ -10,7 +10,7 @@ In a terminal, run:
 workbox init
 ```
 
-Use ↑/↓ to select, Enter to confirm and Esc or Ctrl+C to cancel. Menus show the selection with a `>` marker without requiring color. `TERM=dumb` uses numbered choices. Choose local SQLite or an existing dedicated MySQL database. First-time setup defaults to SQLite and installing the companion Skill into `~/.agents/skills/workbox`. Choose “Use the displayed directory” to accept the Skill location, or “Choose a different directory” to enter a **parent** Skills directory. Paths are text input, not yes/no answers. MySQL's connection form defaults to port 3306 and verified TLS, and hides password input; alternatively supply a DSN file. Connection failures allow editing/retry. The final menu offers execute, back/edit or cancel. Nothing persistent is written before confirmation.
+The terminal wizard uses the [go-clack](https://github.com/orochaa/go-clack) Go port of Clack for selection components and visual styling; no JavaScript runtime is required. Completed choices collapse to a short answer. Use ↑/↓ to select, Enter to confirm and Esc or Ctrl+C to cancel. Menus distinguish selected and unselected options with filled/empty radio symbols (ASCII fallback where needed), without requiring color. `TERM=dumb`, unknown terminal dimensions, or viewports smaller than 80 columns / 18 rows use numbered choices. `NO_COLOR` disables color while keeping visible selection symbols. Choose local SQLite or an existing dedicated MySQL database. First-time setup defaults to SQLite and installing the companion Skill into `~/.agents/skills/workbox`. Choose “Use the displayed directory” to accept the Skill location, or “Choose a different directory” to enter a **parent** Skills directory. Paths are text input, not yes/no answers. MySQL's connection form defaults to port 3306 and verified TLS, and hides password input; alternatively supply a DSN file. Connection failures allow editing/retry. The final menu offers execute, back/edit or cancel. Nothing persistent is written before confirmation.
 
 CLI setup does not clone repositories, create workspace directories or run scripts. Workspace script initialization is a separate Agent/human workflow.
 
@@ -64,3 +64,7 @@ JSON keeps the `{ok,data,error}` envelope. Inspect `data.state`, `initialized`, 
 - Ctrl+C: return exit 130 and actual phase results when possible. Already-published settings remain. SIGKILL/power loss cannot promise final output.
 
 Settings, database and Skill are separate resources, not one transaction. Partial schema and unreferenced private credential files may remain after failure. Workbox does not delete them automatically. Uninstall preserves settings, every credential revision, databases and workspace files.
+
+## Interaction implementation
+
+Workbox drives go-clack's headless selection components and theme through its own synchronous polling loop. This preserves cancellable input, signal handling, terminal restoration and the existing JSON contract without using the port's blocking prompt runner. Text fields retain terminal-native line editing; password echo is disabled before displaying the prompt. A fixed-width formatting sink avoids the port's zero-width/resize formatter failures; small or resized viewports switch to numbered input. This is the Go port, not the JavaScript `@clack/prompts` package.

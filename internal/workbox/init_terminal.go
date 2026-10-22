@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/orochaa/go-clack/prompts/symbols"
 	"golang.org/x/sys/unix"
 )
 
@@ -39,7 +40,11 @@ func terminalLine(ctx context.Context, w io.Writer, label, defaultValue string, 
 		}
 		defer func() { _ = terminalSet(fd, old); fmt.Fprintln(w) }()
 	}
-	fmt.Fprint(w, label)
+	if !plainPrompt(w) {
+		fmt.Fprintf(w, "\n%s  %s\n%s  ", symbols.STEP_ACTIVE, label, symbols.BAR)
+	} else {
+		fmt.Fprint(w, label)
+	}
 	if defaultValue != "" {
 		fmt.Fprintf(w, " [%s]", defaultValue)
 	}
@@ -93,7 +98,8 @@ func terminalYes(ctx context.Context, w io.Writer, label string, defaultYes bool
 	return value == 0, e
 }
 func (a *app) interactiveInit(ctx context.Context, root string, old settingsRecord, w io.Writer) (*initPlan, *Failure) {
-	fmt.Fprintln(w, "Workbox initialization\nConfiguration directory: "+root)
+	fmt.Fprintf(w, "%s  Workbox initialization\n%s\n", symbols.BAR_START, symbols.BAR)
+	fmt.Fprintln(w, "Configuration directory: "+root)
 	if overrides := overrideNames(); len(overrides) > 0 {
 		fmt.Fprintf(w, "Environment overrides: %s\n", strings.Join(overrides, ", "))
 	}

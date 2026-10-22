@@ -5,7 +5,9 @@ go 1.26.0
 require (
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/google/uuid v1.6.0
+	github.com/orochaa/go-clack v0.1.21
 	golang.org/x/sys v0.48.0
+	golang.org/x/term v0.28.0
 	golang.org/x/text v0.30.0
 	modernc.org/sqlite v1.60.1
 )

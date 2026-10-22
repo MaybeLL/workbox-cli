@@ -44,3 +44,7 @@ The installation smoke script forces SQLite and clears inherited MySQL connectio
 ## Initialization acceptance
 
 `init_test.go` verifies the settings gate before network/filesystem writes, strict settings and permissions, old SQLite adoption, noninteractive parsing, inactive credential handling, repair with explicit no-copy, stale plans, lock cancellation, and Skill partial failure. MySQL init integration tests use the same isolated database factory and explicit test DSN. Installation smoke runs noninteractive init in each temporary configuration root and verifies settings survive uninstall.
+
+## Terminal interaction
+
+Clack selection tests check retained defaults, navigation, collapsed confirmed answers, cancellation without a false confirmation, and rejection of empty menus. Interactive acceptance should run the built executable in an isolated PTY with temporary HOME/config/state: navigate with arrows, confirm, return to edit a custom path, cancel with Esc and SIGINT, verify hidden password input and restored echo/canonical mode, then repeat with `NO_COLOR`, `TERM=dumb` and a small viewport. Keep JSON/pipe execution noninteractive. This exercises Workbox's terminal driver as well as the Go Clack component model; upstream prompt-runner tests alone are insufficient.
