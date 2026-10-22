@@ -10,7 +10,7 @@ In a terminal, run:
 workbox init
 ```
 
-Choose local SQLite or an existing dedicated MySQL database. First-time setup defaults to SQLite and installing the companion Skill into `~/.agents/skills/workbox`. The path prompt accepts the **parent** Skills directory. MySQL's connection form defaults to port 3306 and verified TLS, and hides password input; alternatively supply a DSN file. Connection failures allow editing/retry. The final menu offers execute, back/edit or cancel. Nothing persistent is written before confirmation.
+Use ↑/↓ to select, Enter to confirm and Esc or Ctrl+C to cancel. Menus show the selection with a `>` marker without requiring color. `TERM=dumb` uses numbered choices. Choose local SQLite or an existing dedicated MySQL database. First-time setup defaults to SQLite and installing the companion Skill into `~/.agents/skills/workbox`. Choose “Use the displayed directory” to accept the Skill location, or “Choose a different directory” to enter a **parent** Skills directory. Paths are text input, not yes/no answers. MySQL's connection form defaults to port 3306 and verified TLS, and hides password input; alternatively supply a DSN file. Connection failures allow editing/retry. The final menu offers execute, back/edit or cancel. Nothing persistent is written before confirmation.
 
 CLI setup does not clone repositories, create workspace directories or run scripts. Workspace script initialization is a separate Agent/human workflow.
 

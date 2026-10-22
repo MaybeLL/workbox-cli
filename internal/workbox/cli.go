@@ -345,6 +345,8 @@ func (a *app) run(ctx context.Context, args []string, stdout, stderr io.Writer, 
 			fmt.Fprintln(stderr, "Could not write command output")
 			return 1
 		}
+	} else if len(clean) > 0 && clean[0] == "init" {
+		renderInitOutcome(stdout, result.Data, e)
 	} else if result.OK && data != nil {
 		if object, ok := data.(map[string]any); ok && object["usage"] != nil {
 			fmt.Fprint(stdout, object["usage"])

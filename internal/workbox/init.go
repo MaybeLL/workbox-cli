@@ -444,14 +444,90 @@ func (a *app) initialize(ctx context.Context, c command, format string, stderr i
 	return a.executeInit(ctx, p, result)
 }
 
+func storageLabel(store configStore) string {
+	switch s := store.(type) {
+	case *sqliteStore:
+		return "SQLite · " + s.path
+	case *mysqlStore:
+		return "MySQL · " + s.connector.Addr + " / " + s.connector.DBName
+	}
+	return "Unavailable"
+}
 func initSummary(w io.Writer, p *initPlan) {
-	fmt.Fprintln(w, "\nInitialization plan (no changes have been made):")
-	human(w, map[string]any{"source": storeIdentity(p.source), "target": storeIdentity(p.target), "settings": filepath.Join(p.root, "settings.json"), "copy_config": p.options.copy, "install_skill": p.options.install, "skills_parent": p.parent}, 0)
-	if p.frozen != nil {
-		fmt.Fprintf(w, "Frozen source at %s: %d repositories, %d workspaces. Later source changes are not copied.\n", p.frozenAt, len(p.frozen.Repos), len(p.frozen.Workspaces))
+	fmt.Fprintln(w, "\nReview initialization")
+	fmt.Fprintln(w, "  Storage: "+storageLabel(p.target))
+	if mysql, ok := p.target.(*mysqlStore); ok {
+		tls := mysql.connector.TLSConfig
+		if tls == "" || tls == "false" {
+			tls = "disabled"
+		}
+		fmt.Fprintf(w, "  Account: %s · TLS: %s\n", mysql.connector.User, tls)
 	}
+	fmt.Fprintln(w, "  Settings: "+filepath.Join(p.root, "settings.json"))
 	if p.options.copy && p.copyState == "not_attempted" {
-		fmt.Fprintln(w, "Copy validates Git remote branches; existing target configurations are retained, conflicts abort the entire copy.")
+		fmt.Fprintln(w, "  Copy from: "+storageLabel(p.source))
+		if p.frozen != nil {
+			fmt.Fprintf(w, "  Copy: %d repositories, %d workspaces (snapshot %s)\n", len(p.frozen.Repos), len(p.frozen.Workspaces), p.frozenAt)
+		}
+		fmt.Fprintln(w, "  Git branches will be checked; source data is retained.")
+	} else {
+		fmt.Fprintln(w, "  Copy: no configuration transfer")
 	}
-	fmt.Fprintln(w, "Will prepare storage and publish settings, then install the selected Skill.")
+	if p.options.install {
+		fmt.Fprintln(w, "  Skill: "+filepath.Join(p.parent, "workbox"))
+	} else {
+		fmt.Fprintln(w, "  Skill: skip installation")
+	}
+	fmt.Fprintln(w, "Nothing has been changed yet.")
+}
+
+// Text is intended for people. JSON retains the complete machine contract.
+func renderInitOutcome(w io.Writer, data any, e *Failure) {
+	result, _ := data.(map[string]any)
+	if e != nil {
+		if e.Code == "INTERRUPTED" {
+			fmt.Fprintln(w, "Initialization cancelled.")
+		} else {
+			fmt.Fprintf(w, "Initialization failed (%s): %s\n", e.Code, e.Message)
+		}
+		if result != nil && result["state"] == "partial" {
+			settings, _ := result["settings"].(map[string]any)
+			fmt.Fprintf(w, "Settings publication: %v\n", settings["publication"])
+			if result["initialized"] == true {
+				fmt.Fprintln(w, "Saved settings remain usable. Check completed steps before retrying.")
+			}
+			for _, key := range []string{"storage", "copy", "skill"} {
+				if step, ok := result[key].(map[string]any); ok {
+					state := step["state"]
+					if key == "storage" {
+						state = step["preparation"]
+					}
+					fmt.Fprintf(w, "  %s: %v\n", key, state)
+				}
+			}
+		} else if e.Code == "INTERRUPTED" {
+			fmt.Fprintln(w, "No initialization changes were made.")
+		}
+		for _, key := range []string{"path", "next_step"} {
+			if value, ok := e.Details[key]; ok {
+				fmt.Fprintf(w, "%s: %v\n", key, value)
+			}
+		}
+		return
+	}
+	fmt.Fprintln(w, "Workbox is ready.")
+	if effective, ok := result["effective_storage"].(map[string]any); ok {
+		fmt.Fprintf(w, "Storage: %v\n", effective["backend"])
+	}
+	if result != nil {
+		if settings, ok := result["settings"].(map[string]any); ok {
+			fmt.Fprintf(w, "Settings: %v\n", settings["path"])
+		}
+		for _, key := range []string{"copy", "skill"} {
+			if step, ok := result[key].(map[string]any); ok {
+				fmt.Fprintf(w, "%s: %v\n", key, step["state"])
+			}
+		}
+	}
+	fmt.Fprintln(w, "Next: workbox repo-config list")
 }

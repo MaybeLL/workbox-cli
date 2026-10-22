@@ -26,11 +26,6 @@ func terminalInteractive(w io.Writer) bool {
 // Poll before reading avoids a background reader surviving cancellation. The
 // terminal remains canonical; passwords change echo only and restore on return.
 func terminalLine(ctx context.Context, w io.Writer, label, defaultValue string, secret bool) (string, *Failure) {
-	fmt.Fprint(w, label)
-	if defaultValue != "" {
-		fmt.Fprintf(w, " [%s]", defaultValue)
-	}
-	fmt.Fprint(w, ": ")
 	fd := int(os.Stdin.Fd())
 	if secret {
 		old, err := terminalState(fd)
@@ -44,6 +39,11 @@ func terminalLine(ctx context.Context, w io.Writer, label, defaultValue string, 
 		}
 		defer func() { _ = terminalSet(fd, old); fmt.Fprintln(w) }()
 	}
+	fmt.Fprint(w, label)
+	if defaultValue != "" {
+		fmt.Fprintf(w, " [%s]", defaultValue)
+	}
+	fmt.Fprint(w, ": ")
 	buf := []byte{}
 	one := make([]byte, 1)
 	for {
@@ -85,68 +85,64 @@ func terminalLine(ctx context.Context, w io.Writer, label, defaultValue string, 
 	}
 }
 func terminalYes(ctx context.Context, w io.Writer, label string, defaultYes bool) (bool, *Failure) {
-	def := "n"
+	selected := 1
 	if defaultYes {
-		def = "y"
+		selected = 0
 	}
-	for {
-		s, e := terminalLine(ctx, w, label+" (y/n)", def, false)
-		if e != nil {
-			return false, e
-		}
-		switch strings.ToLower(s) {
-		case "y", "yes":
-			return true, nil
-		case "n", "no":
-			return false, nil
-		}
-		fmt.Fprintln(w, "Enter y or n.")
-	}
+	value, e := terminalSelect(ctx, w, label, []string{"Yes", "No"}, selected)
+	return value == 0, e
 }
 func (a *app) interactiveInit(ctx context.Context, root string, old settingsRecord, w io.Writer) (*initPlan, *Failure) {
 	fmt.Fprintln(w, "Workbox initialization\nConfiguration directory: "+root)
-	fmt.Fprintf(w, "Environment overrides: %v\n", overrideNames())
+	if overrides := overrideNames(); len(overrides) > 0 {
+		fmt.Fprintf(w, "Environment overrides: %s\n", strings.Join(overrides, ", "))
+	}
 	source, sourceErr := sourceStore(root, old)
 	if sourceErr == nil {
-		human(w, map[string]any{"current_storage": storeIdentity(source)}, 0)
+		fmt.Fprintln(w, "Current storage: "+storageLabel(source))
 	} else {
 		fmt.Fprintln(w, "Current connection is unreadable; provide a new connection and explicitly decline copying to repair it.")
 	}
+	def := 0
+	if _, ok := source.(*mysqlStore); ok {
+		def = 1
+	}
+	installDefault := true
+	if old.value != nil {
+		installDefault = old.value.Skill.Install
+	}
+	rememberedPath := ""
+	var rememberedMySQL configStore
 	for {
-		def := "1"
-		if _, ok := source.(*mysqlStore); ok {
-			def = "2"
-		}
-		choice, e := terminalLine(ctx, w, "Storage: 1 SQLite / 2 MySQL / 0 cancel", def, false)
+		choice, e := terminalSelect(ctx, w, "Choose configuration storage", []string{"SQLite — local storage", "MySQL — existing database"}, def)
 		if e != nil {
 			return nil, e
 		}
-		if choice == "0" {
-			return nil, fail("INTERRUPTED", "Initialization cancelled")
-		}
-		if choice != "1" && choice != "2" {
-			continue
-		}
+		def = choice
 		o := initOptions{backend: "sqlite"}
 		var target configStore = &sqliteStore{path: root + string(os.PathSeparator) + "config.db"}
-		if choice == "2" {
+		if choice == 1 {
 			o.backend = "mysql"
-			mode, e := terminalLine(ctx, w, "MySQL: 1 saved/environment / 2 DSN file / 3 connection form / 0 back", "1", false)
+			mode, e := terminalSelect(ctx, w, "MySQL connection", []string{"Use current / saved connection", "Read a DSN file", "Enter connection details", "Back to storage selection"}, 0)
 			if e != nil {
 				return nil, e
 			}
-			if mode == "0" {
+			if mode == 3 {
 				continue
 			}
 			switch mode {
-			case "1":
-				target, e = candidateStore(root, old, o)
-			case "2":
+			case 0:
+				if rememberedMySQL != nil {
+					target = rememberedMySQL
+				} else {
+					target, e = candidateStore(root, old, o)
+				}
+			case 1:
 				o.dsnFile, e = terminalLine(ctx, w, "DSN input file", "", false)
 				if e == nil {
 					target, e = candidateStore(root, old, o)
 				}
-			case "3":
+			case 2:
 				cfg := mysql.NewConfig()
 				cfg.Net = "tcp"
 				cfg.TLSConfig = "true"
@@ -192,9 +188,13 @@ func (a *app) interactiveInit(ctx context.Context, root string, old settingsReco
 				continue
 			}
 		}
+		if choice == 1 {
+			rememberedMySQL = target
+		}
 		if e := checkInitEnvironment(target); e != nil {
 			return nil, e
 		}
+		fmt.Fprintln(w, "Checking storage…")
 		if _, e := target.snapshot(ctx); e != nil {
 			if ctx.Err() != nil {
 				return nil, e
@@ -209,24 +209,31 @@ func (a *app) interactiveInit(ctx context.Context, root string, old settingsReco
 			}
 			o.noCopy = !o.copy
 		}
-		defaultInstall := true
-		if old.value != nil {
-			defaultInstall = old.value.Skill.Install
-		}
-		o.install, e = terminalYes(ctx, w, "Install companion workbox Skill", defaultInstall)
+		o.install, e = terminalYes(ctx, w, "Install companion workbox Skill", installDefault)
 		if e != nil {
 			return nil, e
 		}
+		installDefault = o.install
 		o.skip = !o.install
 		if o.install {
-			parent, e := skillParent(old, "")
+			parent, e := skillParent(old, rememberedPath)
 			if e != nil {
 				return nil, e
 			}
-			o.skillPath, e = terminalLine(ctx, w, "Skills parent directory", parent, false)
+			fmt.Fprintln(w, "\nSkill destination: "+parent+string(os.PathSeparator)+"workbox")
+			location, choiceErr := terminalSelect(ctx, w, "Where should the Skill be installed?", []string{"Use the displayed directory", "Choose a different directory"}, 0)
+			if choiceErr != nil {
+				return nil, choiceErr
+			}
+			o.skillPath = parent
+			if location == 1 {
+				fmt.Fprintln(w, "Enter a directory path, for example ~/.agents/skills. Press Enter to keep the displayed path.")
+				o.skillPath, e = terminalLine(ctx, w, "Skills parent directory", parent, false)
+			}
 			if e != nil {
 				return nil, e
 			}
+			rememberedPath = o.skillPath
 			parent, e = absolute(o.skillPath)
 			if e != nil {
 				return nil, e
@@ -255,14 +262,14 @@ func (a *app) interactiveInit(ctx context.Context, root string, old settingsReco
 			continue
 		}
 		initSummary(w, plan)
-		action, e := terminalLine(ctx, w, "1 execute / 2 back and edit / 0 cancel", "1", false)
+		action, e := terminalSelect(ctx, w, "Ready to initialize?", []string{"Initialize Workbox", "Back and edit", "Cancel"}, 0)
 		if e != nil {
 			return nil, e
 		}
 		switch action {
-		case "1":
+		case 0:
 			return plan, nil
-		case "0":
+		case 2:
 			return nil, fail("INTERRUPTED", "Initialization cancelled")
 		}
 	}
