@@ -10,6 +10,8 @@ The installation smoke script repeats real self-uninstall on a disposable copy o
 
 The configuration/CLI tests cover missing-DB reads, strict parser and JSON envelopes, branch/tag validation, save failures preserving content, reference protection, file replacement/clearing, UTF-8 and original script bytes, schema failures, legacy schema compatibility, and configuration-root precedence.
 
+Workspace agent-entry tests verify that new and empty workspaces receive a regular, non-executable root `AGENTS.md`, plan remains read-only, and no local skill directories or user-global skill installs are created. Real cloned repository rules and clean baselines are preserved. Exclusive file creation rejects files, links and directories without overwriting them; replacement during clone fails with partial output. Case-insensitive targets overlapping root `AGENTS.md` are rejected, including previously saved configurations, before any directory is created.
+
 The workspace tests verify plan makes no directories, create returns only prepared, full-history cloning and actual commits, script handoff without execution, independent plan/create snapshots, in-flight script snapshot consistency, exclusive targets and symlink races, and partial results after second-clone failure or cancellation. The handoff integration test separately executes and checks a declared artifact and verifies baseline HEAD/files remain unchanged.
 
 The import/export tests assert whole-package atomicity, required/unknown/duplicate/null fields, self-contained references, idempotency with fresh remote validation, preservation of local UUIDs, no-overwrite publication, and optimistic conflicts during remote validation.

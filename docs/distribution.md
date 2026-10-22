@@ -2,7 +2,9 @@
 
 Workbox is distributed through GitHub Releases and the self-managed `MaybeLL/homebrew-tap`. The implementation is Go with a pure-Go SQLite driver. Precompiled binaries need Git but no Go, Python or separately installed SQLite.
 
-Starting with 0.1.1, run `workbox skill install` after installing the executable to install its bundled Codex skill into `~/.agents/skills/workbox`. Installing or upgrading the executable does not automatically write to an agent's configuration. The skill and its references are embedded in each binary and also included under `skills/workbox` in release archives. Skill installation works offline; `--path DIR` selects a different skills parent directory. Different existing content is preserved and reported as a conflict.
+Starting with 0.1.1, run `workbox skill install` after installing the executable to install its bundled `workbox` skill into `~/.agents/skills/workbox`. Installing or upgrading the executable does not automatically write to an agent's configuration. The skill and its references are embedded in each binary and also included under `skills/workbox` in release archives. Skill installation works offline; `--path DIR` selects a different skills parent directory. Different existing content is preserved and reported as a conflict.
+
+Starting with 0.1.3, newly created workspaces contain a root `AGENTS.md` that routes agents to the same global `workbox` skill for initialization and Git worktree development. It does not install a second, project-local skill or modify baseline repositories. Start agent sessions at the workspace root, or explicitly load this entry point and the global skill when starting inside a nested repository/worktree. The entry point instructs agents to use their configured global skill location and request the location or installation if the skill is unavailable. Existing workspaces are not rewritten by an executable upgrade.
 
 ## GitHub Releases
 
@@ -53,7 +55,7 @@ Use Go 1.26+ in module mode:
 ```sh
 go test ./...
 go test -race ./...
-make release VERSION=0.1.2
+make release VERSION=0.1.3
 ```
 
 The new `dist` directory contains four CGO-free binaries in archives, checksums, and the initial Homebrew source formula. The output directory must not already exist. Packaging uses the Go standard library and Go tooling; failures preserve partial artifacts. Source paths are removed using `-trimpath`.

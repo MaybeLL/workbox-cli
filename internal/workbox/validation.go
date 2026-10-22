@@ -91,6 +91,9 @@ func validateRefs(refs []Ref) *Failure {
 			}
 		}
 		path = fold.String(path)
+		if path == "agents.md" || strings.HasPrefix(path, "agents.md/") {
+			return invalid("target_dir overlaps the workspace AGENTS.md instruction file")
+		}
 		for _, old := range targets {
 			if path == old || strings.HasPrefix(path, old+"/") || strings.HasPrefix(old, path+"/") {
 				return invalid("Repository target paths overlap (case-insensitive comparison)")

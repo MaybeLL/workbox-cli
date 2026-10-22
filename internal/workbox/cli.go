@@ -48,6 +48,7 @@ const usage = `Usage: workbox COMMAND [--format text|json]
 
 Every command supports --format json; text is the default.
 Scripts are stored and returned to the caller, never executed.
+Workspace create writes a root AGENTS.md pointing agents to the global workbox skill.
 Skill install copies the bundled skill to ~/.agents/skills/workbox by default.
 --path selects a different skills parent directory. Existing differences are never overwritten.
 Uninstall removes the CLI and unmodified companion skills; configuration and workspaces are preserved.

@@ -32,9 +32,13 @@ After installing or upgrading Workbox to 0.1.1 or later:
 workbox skill install
 ```
 
-This installs the bundled skill and its workflow reference into `~/.agents/skills/workbox` for Codex. Use `$workbox` in your next Codex message; restart Codex if it does not appear. The skill is embedded in the executable, so installation works offline and needs neither a source checkout nor Python. It does not read or create the configuration DB, run Git, or modify other skills.
+This installs the single bundled `workbox` skill and its workflow reference into the shared user directory `~/.agents/skills/workbox`, supported by Codex, Cursor and OpenCode. Use `$workbox` in your next Codex message; restart Codex if it does not appear. The skill is embedded in the executable, so installation works offline and needs neither a source checkout nor Python. It does not read or create the configuration DB, run Git, or modify other skills.
 
 To choose a different skills parent directory, use `workbox skill install --path /path/to/skills`. The installer always adds a `workbox` subdirectory. Identical content returns `state: "unchanged"`; different, incomplete, extra or symlinked content returns `SKILL_CONFLICT` without overwriting anything. To replace a different or customized version, back up and move the existing `workbox` directory aside, then rerun the command. There is no force-overwrite mode.
+
+Workbox uses one global skill for configuration, initialization and development. Starting with 0.1.3, `workspace create` also writes a short `AGENTS.md` at the new workspace root. This entry point tells agents to load the global `workbox` skill and its workflow reference; detailed rules stay in that skill. No project-local `workbox-dev` skill is installed. If a global skill was installed with `--path`, use that configured location. If it cannot be found, the entry point asks the agent to confirm its location or suggest installation before proceeding.
+
+Start an agent session at the workspace root. A session started directly inside a baseline repository or a development worktree may stop discovering ancestor rules at a Git boundary or use nearer repository instructions; explicitly include the workspace's `AGENTS.md` and global `workbox` skill in such sessions. Existing repository instructions remain applicable. The entry point guides agent behavior; it does not make baselines physically read-only. Existing workspaces are not retrofitted automatically.
 
 ## Uninstall
 
@@ -80,6 +84,7 @@ The target must not exist, including an existing empty directory. Its parent mus
 
 ```text
 analysis-one/
+├── AGENTS.md                  points agents to the global workbox skill
 ├── repos/api/                 analysis baseline; keep its work files and HEAD unchanged
 └── .workbox/
     └── worktree/              development worktrees are direct children
@@ -121,7 +126,7 @@ Repository URLs support HTTPS, `ssh://user@host/path`, and SCP-style `git@host:p
 
 Every add, update and nonempty import checks the exact remote `refs/heads/BRANCH`. Tags do not count and no default branch is guessed. Ambiguous inaccessible/missing remotes return `REMOTE_UNVERIFIABLE`; Git's generic access denial is not evidence of nonexistence. Queries time out after 60 seconds, clones after 1800 seconds per repository, and other Git operations after 60 seconds. All Git operations are noninteractive; no automatic retries occur.
 
-Workspace repository lists contain only `repo` and `target_dir`. Repository selections cannot repeat. Target paths use `/`, must be relative, and cannot contain empty, `.`, `..`, `.git`, or `.workbox` segments. Backslashes, drive paths, and ancestor/descendant or case-folded overlaps are rejected. Referenced repository configurations cannot be removed; the error lists the workspace configurations using them. Removing a workspace configuration never removes a directory.
+Workspace repository lists contain only `repo` and `target_dir`. Repository selections cannot repeat. Target paths use `/`, must be relative, and cannot contain empty, `.`, `..`, `.git`, or `.workbox` segments. Backslashes, drive paths, and ancestor/descendant or case-folded overlaps are rejected. The top-level `AGENTS.md` name and paths below it are reserved (case-insensitive); repository targets cannot overlap the workspace instruction file. Referenced repository configurations cannot be removed; the error lists the workspace configurations using them. Removing a workspace configuration never removes a directory.
 
 ## Storage and portability
 
@@ -152,7 +157,7 @@ Each checkout reports `kind`, relative `path`, `branch`, full `commit`, `clean`,
 JSON stdout always contains exactly one envelope, even for parser errors:
 
 ```json
-{"ok": true, "data": {"program": "workbox", "version": "0.1.2"}, "error": null}
+{"ok": true, "data": {"program": "workbox", "version": "0.1.3"}, "error": null}
 ```
 
 Errors use `{"code":"...","message":"...","details":{}}`; partial results remain in `data`. Diagnostic output belongs on stderr. Create errors retain the directory and report each repository as `completed`, `failed` or `not_attempted`, including actual commits already read. There is no rollback, overwrite, resume, or cleanup. Use a fresh target or explicitly handle the existing directory. SIGINT/SIGTERM return best-effort partial JSON with exit 130; process crashes/forced kills cannot promise output.
@@ -175,6 +180,6 @@ go test -race ./...
 
 Tests isolate all configuration state and Git configuration in temporary directories. HTTPS-shaped URLs are redirected by Git's `insteadOf` to temporary local remotes, so actual branch queries, clones, status, submodules, and linked worktrees run without network or user credentials. Fault injection covers concurrent writes, path races, cancellation, timeout and partial clone failures. Actual permission failures and process signals are also checked. No tests touch the user's DB or working repositories. See [test contracts](docs/testing.md).
 
-`make release VERSION=0.1.2` cross-compiles the four targets, creates archives and SHA-256 checksums, and generates a source formula pinned to the release's Git revision. The release workflow builds native macOS Homebrew bottles and adds their checksums before publishing. The output directory must not already exist; build failures preserve partial artifacts. Run `sh scripts/check-install.sh workbox` to check an installed executable with temporary configuration and workspace directories. See [distribution and release instructions](docs/distribution.md).
+`make release VERSION=0.1.3` cross-compiles the four targets, creates archives and SHA-256 checksums, and generates a source formula pinned to the release's Git revision. The release workflow builds native macOS Homebrew bottles and adds their checksums before publishing. The output directory must not already exist; build failures preserve partial artifacts. Run `sh scripts/check-install.sh workbox` to check an installed executable with temporary configuration and workspace directories. See [distribution and release instructions](docs/distribution.md).
 
 Version 0.1 intentionally excludes script execution, worktree create/delete commands, baseline synchronization, branch overrides, migrations, import overwrite, background jobs and persistent workspace state.

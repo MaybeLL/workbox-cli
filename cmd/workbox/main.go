@@ -10,7 +10,7 @@ import (
 )
 
 // Set by the release build; go build remains usable from a source checkout.
-var version = "0.1.2"
+var version = "0.1.3"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

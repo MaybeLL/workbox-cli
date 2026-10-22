@@ -55,7 +55,7 @@ func destination(raw string) (string, *Failure) {
 	return filepath.Join(parent, filepath.Base(path)), nil
 }
 
-// Root confines our mkdir operations even if a path component is concurrently linked.
+// Root confines file and directory creation if a component is concurrently linked.
 // Git still consumes paths, so this is not complete isolation from concurrent writers.
 type ownedTree struct {
 	path  string
@@ -112,8 +112,8 @@ func (t *ownedTree) check() *Failure {
 	}
 	for name, info := range t.owned {
 		actual, err := t.root.Lstat(name)
-		if err != nil || !actual.IsDir() || !os.SameFile(info, actual) {
-			return fail("PATH_INVALID", "Prepared directory was replaced or linked")
+		if err != nil || actual.Mode().Type() != info.Mode().Type() || !os.SameFile(info, actual) {
+			return fail("PATH_INVALID", "Prepared entry was replaced or linked")
 		}
 	}
 	return nil
@@ -249,6 +249,10 @@ func (a *app) prepare(ctx context.Context, name, raw string, create bool) (data 
 		if e := tree.mkdir(dir); e != nil {
 			return nil, e
 		}
+	}
+	stage = "agent_instructions"
+	if e := tree.writeAgentInstructions(); e != nil {
+		return nil, e
 	}
 	stage = "clone"
 	for i, ref := range w.Repos {
