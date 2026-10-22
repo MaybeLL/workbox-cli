@@ -421,3 +421,21 @@ func TestUninstallRunningExecutable(t *testing.T) {
 		t.Fatal("source executable was removed")
 	}
 }
+
+func TestUninstallUnrecordedPreviousSkillBundle(t *testing.T) {
+	home, binary := uninstallFixture(t)
+	parent := filepath.Join(home, ".agents", "skills")
+	for _, name := range []string{"SKILL.md", "references/agent-guide.md"} {
+		raw, err := os.ReadFile(filepath.Join("testdata", "skill-v0.2.0", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		uninstallFile(t, filepath.Join(parent, "workbox", name), string(raw), 0644)
+	}
+	_, e := uninstall(context.Background(), binary, binary, map[string]string{})
+	if e != nil {
+		t.Fatal(e)
+	}
+	assertAbsent(t, filepath.Join(parent, "workbox"))
+	assertAbsent(t, binary)
+}

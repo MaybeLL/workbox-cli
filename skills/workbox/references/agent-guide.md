@@ -2,6 +2,8 @@
 
 `workbox` prepares directories and returns script text. The Agent is responsible for initialization and subsequent development. Commands support JSON envelopes; check `ok`, the process exit code and partial results rather than relying on printed success text.
 
+Before storage-dependent commands, complete CLI initialization using the `SKILL.md` instructions. A successful `workbox init` configures storage; it does not execute workspace initialization scripts.
+
 ## Initialize a prepared workspace
 
 1. Call `workbox workspace create --config NAME --path DIR --format json`. Continue only if it returns `ok: true` and `data.state: "prepared"`. Retain this response's `workspace_path`, repository paths/commits, and `init_script`. Do not call `show` to choose a possibly newer script for this create.

@@ -7,6 +7,15 @@ description: Manage reusable repository and workspace configurations with the wo
 
 Use the installed `workbox` executable. Check `workbox --version` and use `workbox --help` for the exact command syntax. If it is missing, install it using the user's chosen method; Homebrew users can run `brew install MaybeLL/tap/workbox`.
 
+## CLI initialization
+
+Configuration commands and workspace plan/create require a successful `workbox init`.
+On `NOT_INITIALIZED`, establish the user's intended backend, Skill location and copy choice, then run explicit noninteractive init with `--format json`. For a requested local setup: `workbox init --backend sqlite --install-skill --format json`; use `--skip-skill` when the user does not want Skill installation. MySQL uses `--mysql-dsn-file FILE`; never put passwords in arguments or messages. Scripts require `--backend` and exactly one Skill choice. `--skill-path` is the Skills parent directory.
+
+For a storage switch, explain source and target and obtain the copy choice; pass `--copy-config` or `--no-copy-config`. Copy retains the source, verifies Git remotes, and rejects content conflicts. Environment overrides cannot bypass initialization; conflicting overrides must be removed by the caller. Do not silently replace damaged settings, remove databases, or copy credentials into business exports.
+
+Check `data.settings.publication`, `data.initialized`, and the per-step states. Skill failure after settings publication leaves the CLI initialized; retry `skill install` separately. A partial or unknown commit is not proof of rollback: reread/retry without deleting target data. Help, version, local status, Skill installation and uninstall remain available without init. CLI initialization configures storage; workspace initialization still follows the workflow below.
+
 ## Configuration and preparation
 
 Use `--format json` for commands. Check the exit code, `ok`, `error`, and any partial `data`. An interrupted or failed create can leave a useful directory; inspect the result before deciding the next action.

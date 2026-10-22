@@ -174,6 +174,12 @@ func skillCandidates(extra string) (map[string]map[string]string, string, []rece
 		path := filepath.Join(parent, "workbox")
 		if _, known := candidates[path]; !known {
 			candidates[path] = skillHashes(files)
+			if old, err := os.OpenRoot(path); err == nil {
+				if info, err := os.Lstat(path); err == nil && info.IsDir() && sameSkillHashes(old, legacySkillHashes) {
+					candidates[path] = legacySkillHashes
+				}
+				old.Close()
+			}
 		}
 	}
 	return candidates, state, records, nil

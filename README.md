@@ -24,6 +24,12 @@ make build
 
 Prebuilt release executables require no Go, Python, C compiler, or separately installed SQLite library. Add the executable's directory to PATH to use `workbox` directly. Configuration schema version 1 remains compatible across implementations; no data migration is needed.
 
+## Initialize
+
+Run `workbox init` after installation or upgrade. The terminal wizard selects SQLite or an existing MySQL database, offers Skill installation (default yes), and confirms before writing. Configuration commands and workspace plan/create require this step; existing databases and IDs are preserved.
+
+For scripts: `workbox init --backend sqlite --skip-skill --format json`. Use `--install-skill` to install the companion Skill and `--skill-path DIR` to choose its parent directory. See [initialization, switching and recovery](docs/initialization.md).
+
 ## Install the agent skill
 
 After installing or upgrading Workbox to 0.1.1 or later:
@@ -49,7 +55,7 @@ workbox uninstall --dry-run   # Preview without changing files
 workbox uninstall
 ```
 
-Homebrew installations are removed through `brew uninstall --formula --force maybell/tap/workbox`, including older installed Workbox versions. Direct archive installations remove the running `workbox` executable and its invocation symlink, if present. Configuration databases, existing workspaces, other skills and shared parent directories are preserved. No administrator password is requested; the installation directory must be writable by your user.
+Homebrew installations are removed through `brew uninstall --formula --force maybell/tap/workbox`, including older installed Workbox versions. Direct archive installations remove the running `workbox` executable and its invocation symlink, if present. Settings, all saved credential revisions, configuration databases, existing workspaces, other skills and shared parent directories are preserved. No administrator password is requested; the installation directory must be writable by your user.
 
 Uninstall discovers recorded skill locations and the standard `~/.agents/skills/workbox`, `~/.codex/skills/workbox` and `~/.claude/skills/workbox` directories. It verifies every skill before deleting anything. Changed, incomplete, extra or symlinked content causes `SKILL_CONFLICT`; back up and move that directory aside before retrying. A later package-manager error can leave skills already removed; JSON output reports partial results and retains configuration/workspaces.
 
@@ -97,6 +103,9 @@ Clone is full-history, single-branch, without recursive submodules. `plan` check
 All commands, including help and version, accept `--format json` anywhere in the command. Default output is readable text.
 
 ```text
+workbox init [--backend sqlite|mysql] [--mysql-dsn-file FILE]
+             [--install-skill | --skip-skill] [--skill-path DIR]
+             [--copy-config | --no-copy-config]
 workbox repo-config add NAME --url URL --default-branch BRANCH
 workbox repo-config list
 workbox repo-config show NAME
@@ -130,35 +139,24 @@ Workspace repository lists contain only `repo` and `target_dir`. Repository sele
 
 ## Storage and portability
 
-SQLite is the default backend; `WORKBOX_DB=sqlite` also selects it explicitly. Its DB is `config.db` below the first applicable configuration root:
+SQLite is the first-run wizard default. Both backends save initialization settings under `WORKBOX_CONFIG_HOME`, otherwise `${XDG_CONFIG_HOME:-~/.config}/workbox`. SQLite uses `config.db` there; MySQL uses an existing dedicated database and saves a private immutable credential copy there. Relative roots resolve from the current directory. Schema version 1 remains compatible with previous releases.
 
-1. Nonempty `WORKBOX_CONFIG_HOME`.
-2. `${XDG_CONFIG_HOME:-~/.config}/workbox`.
-
-Relative roots resolve from the current directory. SQLite schema version remains `PRAGMA user_version=1`, compatible with previous releases.
-
-Starting with 0.2.0, select MySQL with `WORKBOX_DB=mysql` and provide either `WORKBOX_MYSQL_DSN` or `WORKBOX_MYSQL_DSN_FILE`. The database must already exist and be dedicated to Workbox; the first valid write initializes its InnoDB tables. MySQL 8.4 is tested in CI. Remote connections should use TLS with certificate verification, for example:
+For MySQL, create a private UTF-8 DSN file, for example `workbox:REPLACE_PASSWORD@tcp(db.example.org:3306)/workbox?tls=true`, then run:
 
 ```sh
-# Store the DSN in a private file (mode 600); replace all placeholders.
-# File contents: workbox:REPLACE_PASSWORD@tcp(db.example.org:3306)/workbox?tls=true
-export WORKBOX_DB=mysql
-export WORKBOX_MYSQL_DSN_FILE=/path/to/private/mysql.dsn
-workbox repo-config list
+workbox init --backend mysql --mysql-dsn-file /path/to/private/mysql.dsn \
+  --skip-skill --no-copy-config --format json
 ```
 
-The SQLite configuration-root variables are ignored when MySQL is selected. Credentials are never included in exported packages or database error messages. Switching backends selects a different store; it does not automatically move data. To copy configurations from SQLite into MySQL:
+Choose `--copy-config` instead when you want to copy existing configurations while retaining the source. Copy validates Git remotes and rejects conflicting target content. Workbox never creates the MySQL database itself.
 
-```sh
-WORKBOX_DB=sqlite workbox config export --output workbox-config.json
-WORKBOX_DB=mysql workbox config import --input workbox-config.json
-```
+`WORKBOX_DB`, `WORKBOX_MYSQL_DSN` and `WORKBOX_MYSQL_DSN_FILE` can override saved settings per command, but cannot replace initialization. MySQL still uses the local settings root. Credentials are never included in business exports or database errors. See [initialization](docs/initialization.md) for exact precedence, noninteractive arguments and partial-failure recovery.
 
 Both adapters implement the same storage interface, keeping SQL, schema initialization, transactions and locking outside business operations. See [backend setup, migration and adapter contracts](docs/storage.md).
 
 Both backends have two business tables, `repo_config` and `workspace_config`; MySQL also has a `workbox_schema` metadata table. UUID references are local to each store. There is no workspace instance registry or manifest. Configuration edits affect future creates only.
 
-Missing SQLite DBs and empty MySQL databases return empty lists/exports without initializing tables. A nonexistent or inaccessible MySQL database is an error. Missing configuration lookups fail without initialization. Status, help, version, skill installation and uninstall do not connect to the DB. Invalid writes and failed remote validation do not initialize a DB. Unknown DB versions are rejected without migration; damaged/unreadable DBs are errors. Short read transactions provide snapshots; network checks run outside write transactions. Writes recheck the snapshot under a transaction and reject concurrent changes with `CONFIG_CONFLICT`. Uninstall preserves both local and remote configuration.
+After the settings gate, missing SQLite DBs and empty MySQL databases return empty lists/exports without initializing tables. Init itself explicitly prepares tables. A nonexistent or inaccessible MySQL database is an error. Missing configuration lookups fail without initialization. Status, help, version, skill installation and uninstall do not connect to the DB. Invalid writes and failed remote validation do not initialize a DB. Unknown DB versions are rejected without migration; damaged/unreadable DBs are errors. Short read transactions provide snapshots; network checks run outside write transactions. Writes recheck the snapshot under a transaction and reject concurrent changes with `CONFIG_CONFLICT`. Uninstall preserves both local and remote configuration.
 
 ```sh
 workbox config export --output workbox-config.json --format json
@@ -186,8 +184,8 @@ Errors use `{"code":"...","message":"...","details":{}}`; partial results remain
 | Exit | Meaning / codes |
 | --- | --- |
 | 0 | Success, dirty observations, identical imports |
-| 2 | `INVALID_ARGUMENTS`, `CONFIG_INVALID`, `CONFIG_NOT_FOUND`, `CONFIG_CONFLICT`, `SCHEMA_UNSUPPORTED`, `PATH_INVALID`, `TARGET_EXISTS`, `SKILL_CONFLICT`, `UNINSTALL_UNSUPPORTED`, `REMOTE_BRANCH_NOT_FOUND`; `REMOTE_REPO_NOT_FOUND` is reserved for conclusive evidence |
-| 1 | `IO_ERROR`, `GIT_ERROR`, `REMOTE_UNVERIFIABLE`, `TIMEOUT`, `STATUS_PARTIAL`, `UNINSTALL_FAILED` |
+| 2 | `NOT_INITIALIZED`, `INVALID_ARGUMENTS`, `CONFIG_INVALID`, `CONFIG_NOT_FOUND`, `CONFIG_CONFLICT`, `SCHEMA_UNSUPPORTED`, `PATH_INVALID`, `TARGET_EXISTS`, `SKILL_CONFLICT`, `UNINSTALL_UNSUPPORTED`, `REMOTE_BRANCH_NOT_FOUND`; `REMOTE_REPO_NOT_FOUND` is reserved for conclusive evidence |
+| 1 | `COMMIT_OUTCOME_UNKNOWN`, `IO_ERROR`, `GIT_ERROR`, `REMOTE_UNVERIFIABLE`, `TIMEOUT`, `STATUS_PARTIAL`, `UNINSTALL_FAILED` |
 | 130 | `INTERRUPTED` |
 
 Directory creation is exclusive and checks directory identities and symlinks between steps. It detects common filesystem substitutions, but does not claim isolation from every hostile concurrent filesystem mutation. Baselines are a workflow convention, not physically read-only repositories. Worktrees share Git objects and some refs/metadata.

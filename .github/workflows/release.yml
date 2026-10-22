@@ -153,6 +153,7 @@ jobs:
           workbox skill install
           workbox skill install --path "$RUNNER_TEMP/skills-one"
           workbox skill install --path "$RUNNER_TEMP/skills-two"
+          workbox init --backend sqlite --skip-skill --format json
           workbox workspace-config add retained
           cp "$WORKBOX_CONFIG_HOME/config.db" "$RUNNER_TEMP/config-before.db"
           workbox uninstall --dry-run --format json

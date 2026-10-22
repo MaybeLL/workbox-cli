@@ -40,3 +40,7 @@ WORKBOX_TEST_MYSQL_DSN='root:TEST_PASSWORD@tcp(127.0.0.1:3306)/?tls=false' \
 ```
 
 The installation smoke script forces SQLite and clears inherited MySQL connection settings so it cannot write to a configured deployment database.
+
+## Initialization acceptance
+
+`init_test.go` verifies the settings gate before network/filesystem writes, strict settings and permissions, old SQLite adoption, noninteractive parsing, inactive credential handling, repair with explicit no-copy, stale plans, lock cancellation, and Skill partial failure. MySQL init integration tests use the same isolated database factory and explicit test DSN. Installation smoke runs noninteractive init in each temporary configuration root and verifies settings survive uninstall.

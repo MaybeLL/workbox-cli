@@ -202,6 +202,10 @@ func TestMySQLCLIUsesDSNFile(t *testing.T) {
 	t.Setenv("WORKBOX_DB", "mysql")
 	t.Setenv("WORKBOX_MYSQL_DSN", "")
 	t.Setenv("WORKBOX_MYSQL_DSN_FILE", file)
+	initCmd := exec.Command(testBinary, "init", "--backend", "mysql", "--skip-skill", "--format", "json")
+	if out, err := initCmd.CombinedOutput(); err != nil {
+		t.Fatalf("init failed: %s", out)
+	}
 	cmd := exec.Command(testBinary, "workspace-config", "add", "from-cli", "--format", "json")
 	out, err := cmd.CombinedOutput()
 	if err != nil {

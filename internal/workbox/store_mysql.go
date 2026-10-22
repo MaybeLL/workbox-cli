@@ -29,9 +29,9 @@ func configuredMySQLStore() (*mysqlStore, *Failure) {
 		if e != nil {
 			return nil, e
 		}
-		body, err := os.ReadFile(path)
-		if err != nil {
-			return nil, ioFailure("Could not read WORKBOX_MYSQL_DSN_FILE")
+		body, failure := checkedFile(path, false)
+		if failure != nil {
+			return nil, failure
 		}
 		dsn = strings.TrimSpace(string(body))
 	}
@@ -290,7 +290,7 @@ func (s *mysqlStore) commit(ctx context.Context, expected, next snapshot) *Failu
 		return e
 	}
 	if err := tx.Commit(); err != nil {
-		return dbError(err)
+		return commitFailure(err)
 	}
 	return nil
 }

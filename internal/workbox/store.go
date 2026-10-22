@@ -165,7 +165,7 @@ func (s *sqliteStore) commit(ctx context.Context, expected, next snapshot) *Fail
 		return e
 	}
 	if err := tx.Commit(); err != nil {
-		return dbError(err)
+		return commitFailure(err)
 	}
 	return nil
 }

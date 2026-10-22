@@ -6,6 +6,8 @@ Starting with 0.1.1, run `workbox skill install` after installing the executable
 
 Starting with 0.1.3, newly created workspaces contain a root `AGENTS.md` that routes agents to the same global `workbox` skill for initialization and Git worktree development. It does not install a second, project-local skill or modify baseline repositories. Start agent sessions at the workspace root, or explicitly load this entry point and the global skill when starting inside a nested repository/worktree. The entry point instructs agents to use their configured global skill location and request the location or installation if the skill is unavailable. Existing workspaces are not rewritten by an executable upgrade.
 
+Starting with 0.3.0, run `workbox init` after installation or upgrade before using configuration commands or workspace plan/create. Existing databases are adopted without losing their data. The wizard offers Skill installation; scripts must provide explicit backend and Skill flags. See [initialization and recovery](initialization.md).
+
 ## GitHub Releases
 
 Publish `workbox_VERSION_OS_ARCH.tar.gz` and `workbox_VERSION_checksums.txt` on the project's Releases page. Targets are `darwin` and `linux`, each with `arm64` and `amd64`. Each archive contains the executable, project license, bundled dependency notices, README and guides. Select the matching target, verify its SHA-256, extract it and put `workbox` in PATH.
@@ -55,7 +57,7 @@ Use Go 1.26+ in module mode:
 ```sh
 go test ./...
 go test -race ./...
-make release VERSION=0.2.0
+make release VERSION=0.3.0
 ```
 
 The new `dist` directory contains four CGO-free binaries in archives, checksums, and the initial Homebrew source formula. The output directory must not already exist. Packaging uses the Go standard library and Go tooling; failures preserve partial artifacts. Source paths are removed using `-trimpath`.

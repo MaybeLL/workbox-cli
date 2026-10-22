@@ -252,7 +252,11 @@ func TestMissingDBAndParser(t *testing.T) {
 	for _, entity := range []string{"repo-config", "workspace-config"} {
 		f.call(0, entity, "list")
 		for _, action := range []string{"show", "update", "remove"} {
-			if errorCode(f.call(2, entity, action, "missing")) != "CONFIG_NOT_FOUND" {
+			want := "CONFIG_NOT_FOUND"
+			if action == "update" {
+				want = "INVALID_ARGUMENTS"
+			}
+			if errorCode(f.call(2, entity, action, "missing")) != want {
 				t.Fatal(action)
 			}
 		}
@@ -985,6 +989,7 @@ func TestRealSignalsDuringClone(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(wrapper), 0755); err != nil {
 		t.Fatal(err)
 	}
+	f.call(0, "init", "--backend", "sqlite", "--skip-skill")
 	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
 		t.Run(sig.String(), func(t *testing.T) {
 			os.Remove(marker)

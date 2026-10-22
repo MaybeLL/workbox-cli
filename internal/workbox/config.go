@@ -232,6 +232,10 @@ func (a *app) importFile(ctx context.Context, input string) (any, *Failure) {
 	if e != nil {
 		return nil, e
 	}
+	return a.importPackage(ctx, incoming)
+}
+
+func (a *app) importPackage(ctx context.Context, incoming Package) (any, *Failure) {
 	s, e := a.store.snapshot(ctx)
 	if e != nil {
 		return nil, e

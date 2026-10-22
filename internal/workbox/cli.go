@@ -26,6 +26,9 @@ type envelope struct {
 
 const usage = `Usage: workbox COMMAND [--format text|json]
 
+  init [--backend sqlite|mysql] [--mysql-dsn-file FILE]
+       [--install-skill | --skip-skill] [--skill-path DIR]
+       [--copy-config | --no-copy-config]
   repo-config add NAME --url URL --default-branch BRANCH
   repo-config list
   repo-config show NAME
@@ -54,37 +57,50 @@ Skill install copies the bundled skill to ~/.agents/skills/workbox by default.
 Uninstall removes the CLI and unmodified companion skills; configuration and workspaces are preserved.
 --dry-run previews uninstall. --skill-path locates a custom skill installed by an older version.
 
-Storage: WORKBOX_DB=sqlite (default) or mysql.
-SQLite uses WORKBOX_CONFIG_HOME, otherwise ${XDG_CONFIG_HOME:-~/.config}/workbox.
-MySQL requires WORKBOX_MYSQL_DSN or WORKBOX_MYSQL_DSN_FILE, selecting a dedicated existing database.
-Changing the backend does not copy data; use config export/import to transfer configurations.
+Run workbox init before configuration, export/import, or workspace plan/create commands.
+Interactive init requires a terminal. Scripts must specify --backend and exactly one Skill choice.
+Settings: settings.json under WORKBOX_CONFIG_HOME, otherwise ${XDG_CONFIG_HOME:-~/.config}/workbox.
+Relative config roots resolve from each invocation's working directory; prefer absolute paths.
+SQLite uses config.db in that root; MySQL uses an existing dedicated database.
+Environment overrides: WORKBOX_DB and WORKBOX_MYSQL_DSN or WORKBOX_MYSQL_DSN_FILE.
+Overrides require valid initialization settings. init can copy configurations while retaining the source.
 `
 
 func outputFormat(args []string) ([]string, string, *Failure) {
 	clean := []string{}
 	format := "text"
+	seenFormat := false
 	// Preserve JSON error output even when another argument is invalid.
 	for i, arg := range args {
 		if arg == "--format=json" || (arg == "--format" && i+1 < len(args) && args[i+1] == "json") {
 			format = "json"
 		}
 	}
+	errorFormat := format
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--format" {
+			if seenFormat {
+				return clean, errorFormat, fail("INVALID_ARGUMENTS", "--format must not be repeated")
+			}
+			seenFormat = true
 			i++
 			if i == len(args) {
-				return clean, format, fail("INVALID_ARGUMENTS", "--format requires text or json")
+				return clean, errorFormat, fail("INVALID_ARGUMENTS", "--format requires text or json")
 			}
 			format = args[i]
 		} else if strings.HasPrefix(arg, "--format=") {
+			if seenFormat {
+				return clean, errorFormat, fail("INVALID_ARGUMENTS", "--format must not be repeated")
+			}
+			seenFormat = true
 			format = strings.TrimPrefix(arg, "--format=")
 		} else {
 			clean = append(clean, arg)
 		}
 	}
 	if format != "text" && format != "json" {
-		return clean, format, fail("INVALID_ARGUMENTS", "--format requires text or json")
+		return clean, errorFormat, fail("INVALID_ARGUMENTS", "--format requires text or json")
 	}
 	return clean, format, nil
 }
@@ -96,7 +112,7 @@ func parse(args []string) (command, *Failure) {
 	}
 	c.entity = args[0]
 	start := 1
-	if c.entity != "uninstall" {
+	if c.entity != "uninstall" && c.entity != "init" {
 		if len(args) < 2 {
 			return c, bad
 		}
@@ -107,6 +123,10 @@ func parse(args []string) (command, *Failure) {
 	required := []string{}
 	needsName := false
 	switch c.entity {
+	case "init":
+		for _, name := range []string{"backend", "mysql-dsn-file", "install-skill", "skip-skill", "skill-path", "copy-config", "no-copy-config"} {
+			allowed[name] = true
+		}
 	case "uninstall":
 		allowed["dry-run"] = true
 		allowed["skill-path"] = true
@@ -180,6 +200,13 @@ func parse(args []string) (command, *Failure) {
 			if _, ok := c.flags[flag]; ok {
 				return c, bad
 			}
+			if c.entity == "init" && (flag == "install-skill" || flag == "skip-skill" || flag == "copy-config" || flag == "no-copy-config") {
+				if hasValue {
+					return c, bad
+				}
+				c.flags[flag] = "true"
+				continue
+			}
 			if c.entity == "uninstall" && flag == "dry-run" {
 				if !hasValue {
 					val = "true"
@@ -214,6 +241,14 @@ func parse(args []string) (command, *Failure) {
 		if _, ok := c.flags[flag]; !ok {
 			return c, bad
 		}
+	}
+	if c.entity == "init" && len(c.flags) > 0 {
+		if _, e := initFlags(c); e != nil {
+			return c, e
+		}
+	}
+	if (c.entity == "repo-config" || c.entity == "workspace-config") && c.action == "update" && len(c.flags) == 0 {
+		return c, bad
 	}
 	return c, nil
 }
@@ -268,14 +303,18 @@ func (a *app) run(ctx context.Context, args []string, stdout, stderr io.Writer, 
 			ver = ver || arg == "--version"
 		}
 		if help {
-			data = map[string]any{"usage": usage, "commands": []string{"repo-config add/list/show/update/remove", "workspace-config add/list/show/update/remove", "config export/import", "workspace plan/create/status", "skill install", "uninstall"}}
+			data = map[string]any{"usage": usage, "commands": []string{"init", "repo-config add/list/show/update/remove", "workspace-config add/list/show/update/remove", "config export/import", "workspace plan/create/status", "skill install", "uninstall"}}
 		} else if ver && len(clean) == 1 {
 			data = map[string]string{"program": "workbox", "version": version}
 		} else {
 			var c command
 			c, e = parse(clean)
 			if e == nil {
-				data, e = a.execute(ctx, c)
+				if c.entity == "init" {
+					data, e = a.initialize(ctx, c, format, stderr)
+				} else {
+					data, e = a.execute(ctx, c)
+				}
 			}
 		}
 	}
@@ -286,7 +325,11 @@ func (a *app) run(ctx context.Context, args []string, stdout, stderr io.Writer, 
 			interrupted.Data = e.Data
 		}
 		if partial, ok := interrupted.Data.(map[string]any); ok && partial["state"] != nil {
-			partial["state"] = "failed"
+			if partial["settings"] == nil {
+				partial["state"] = "failed"
+			} else if partial["state"] == "initialized" {
+				partial["state"] = "partial"
+			}
 		}
 		e = interrupted
 	}

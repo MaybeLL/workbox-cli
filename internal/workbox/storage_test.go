@@ -186,10 +186,11 @@ func TestStorageWriteFailureRollsBackAllChanges(t *testing.T) {
 }
 
 func TestBackendSelectionAndCredentialRedaction(t *testing.T) {
-	_, home := skillApp(t)
+	home := initHome(t)
 	t.Setenv("WORKBOX_DB", "sqlite")
 	t.Setenv("WORKBOX_MYSQL_DSN", "")
 	t.Setenv("WORKBOX_MYSQL_DSN_FILE", "")
+	initCall(t, 0, "init", "--backend", "sqlite", "--skip-skill")
 	if s, e := configuredStore(); e != nil {
 		t.Fatal(e)
 	} else if _, ok := s.(*sqliteStore); !ok {
