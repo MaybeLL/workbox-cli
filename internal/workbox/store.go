@@ -3,18 +3,18 @@ package workbox
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"net/url"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 
 	_ "modernc.org/sqlite"
 )
 
-type store struct{ path string }
+type sqliteStore struct{ path string }
+
+var _ configStore = (*sqliteStore)(nil)
 
 func configPath() (string, *Failure) {
 	root := os.Getenv("WORKBOX_CONFIG_HOME")
@@ -60,13 +60,7 @@ func pathExists(path string) (bool, error) {
 	}
 	return err == nil, err
 }
-func dbError(err error) *Failure {
-	if strings.Contains(err.Error(), "SQLITE_BUSY") || strings.Contains(err.Error(), "SQLITE_LOCKED") {
-		return fail("CONFIG_CONFLICT", "Configuration database is busy")
-	}
-	return ioFailure("Could not read or write configuration database")
-}
-func (s store) open(write bool) (*sql.DB, *Failure) {
+func (s *sqliteStore) open(write bool) (*sql.DB, *Failure) {
 	mode := "ro"
 	if write {
 		mode = "rwc"
@@ -86,57 +80,26 @@ func (s store) open(write bool) (*sql.DB, *Failure) {
 	db.SetMaxOpenConns(1)
 	return db, nil
 }
-func schema(ctx context.Context, tx *sql.Tx) *Failure {
+func sqliteSchema(ctx context.Context, tx *sql.Tx) (bool, *Failure) {
 	var version int
 	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
-		return dbError(err)
+		return false, dbError(err)
 	}
-	if version != 1 {
-		return fail("SCHEMA_UNSUPPORTED", "Unsupported database schema version")
+	if version == 1 {
+		return true, nil
 	}
-	return nil
+	if version == 0 {
+		var count int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master").Scan(&count); err != nil {
+			return false, dbError(err)
+		}
+		if count == 0 {
+			return false, nil
+		}
+	}
+	return false, fail("SCHEMA_UNSUPPORTED", "Unsupported database schema version")
 }
-func readSnapshot(ctx context.Context, tx *sql.Tx) (snapshot, *Failure) {
-	s := emptySnapshot()
-	rows, err := tx.QueryContext(ctx, "SELECT id,name,source_url,default_branch FROM repo_config ORDER BY name")
-	if err != nil {
-		return s, dbError(err)
-	}
-	for rows.Next() {
-		var r Repo
-		if err := rows.Scan(&r.ID, &r.Name, &r.URL, &r.Branch); err != nil {
-			rows.Close()
-			return s, dbError(err)
-		}
-		s.Repos[r.Name] = r
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return s, dbError(err)
-	}
-	rows, err = tx.QueryContext(ctx, "SELECT id,name,repos,init_script FROM workspace_config ORDER BY name")
-	if err != nil {
-		return s, dbError(err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var w workspaceRow
-		var raw string
-		if err := rows.Scan(&w.ID, &w.Name, &raw, &w.Script); err != nil {
-			return s, dbError(err)
-		}
-		if json.Unmarshal([]byte(raw), &w.Repos) != nil || w.Repos == nil {
-			return s, invalid("Invalid repository references in database")
-		}
-		s.Workspaces[w.Name] = w
-	}
-	if err := rows.Err(); err != nil {
-		return s, dbError(err)
-	}
-	return s, nil
-}
-func (s store) snapshot(ctx context.Context) (snapshot, *Failure) {
+func (s *sqliteStore) snapshot(ctx context.Context) (snapshot, *Failure) {
 	exists, err := pathExists(s.path)
 	if err != nil {
 		return snapshot{}, ioFailure("Could not inspect configuration database")
@@ -154,13 +117,17 @@ func (s store) snapshot(ctx context.Context) (snapshot, *Failure) {
 		return snapshot{}, dbError(err)
 	}
 	defer tx.Rollback()
-	if e := schema(ctx, tx); e != nil {
+	ready, e := sqliteSchema(ctx, tx)
+	if e != nil {
 		return snapshot{}, e
+	}
+	if !ready {
+		return emptySnapshot(), nil
 	}
 	return readSnapshot(ctx, tx)
 }
-func (s store) mutate(ctx context.Context, expected snapshot, action func(*sql.Tx, snapshot) *Failure) *Failure {
-	existed, err := pathExists(s.path)
+func (s *sqliteStore) commit(ctx context.Context, expected, next snapshot) *Failure {
+	_, err := pathExists(s.path)
 	if err != nil {
 		return ioFailure("Could not inspect configuration database")
 	}
@@ -174,48 +141,30 @@ func (s store) mutate(ctx context.Context, expected snapshot, action func(*sql.T
 		return dbError(err)
 	}
 	defer tx.Rollback()
-	var version, count int
-	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
-		return dbError(err)
+	ready, e := sqliteSchema(ctx, tx)
+	if e != nil {
+		return e
 	}
-	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table'").Scan(&count); err != nil {
-		return dbError(err)
-	}
-	if !existed && version == 0 && count == 0 {
+	// Another first writer may have created the empty file before acquiring
+	// its transaction. An empty, version-zero SQLite file is still uninitialized.
+	if !ready {
 		for _, ddl := range []string{"CREATE TABLE repo_config (id TEXT PRIMARY KEY NOT NULL, name TEXT UNIQUE NOT NULL, source_url TEXT NOT NULL, default_branch TEXT NOT NULL)", "CREATE TABLE workspace_config (id TEXT PRIMARY KEY NOT NULL, name TEXT UNIQUE NOT NULL, repos TEXT NOT NULL, init_script TEXT NOT NULL DEFAULT '')", "PRAGMA user_version=1"} {
 			if _, err := tx.ExecContext(ctx, ddl); err != nil {
 				return dbError(err)
 			}
 		}
-	} else if e := schema(ctx, tx); e != nil {
-		return e
 	}
 	current, e := readSnapshot(ctx, tx)
 	if e != nil {
 		return e
 	}
-	if !reflect.DeepEqual(current, expected) {
+	if !sameSnapshot(current, expected) {
 		return fail("CONFIG_CONFLICT", "Configuration changed during validation; retry the command")
 	}
-	if e := action(tx, current); e != nil {
+	if e := writeSnapshot(ctx, tx, current, next); e != nil {
 		return e
 	}
 	if err := tx.Commit(); err != nil {
-		return dbError(err)
-	}
-	return nil
-}
-func insertRepo(ctx context.Context, tx *sql.Tx, r Repo) *Failure {
-	_, err := tx.ExecContext(ctx, "INSERT INTO repo_config (id,name,source_url,default_branch) VALUES (?,?,?,?)", r.ID, r.Name, r.URL, r.Branch)
-	if err != nil {
-		return dbError(err)
-	}
-	return nil
-}
-func insertWorkspace(ctx context.Context, tx *sql.Tx, w workspaceRow) *Failure {
-	raw, _ := json.Marshal(w.Repos)
-	_, err := tx.ExecContext(ctx, "INSERT INTO workspace_config (id,name,repos,init_script) VALUES (?,?,?,?)", w.ID, w.Name, string(raw), w.Script)
-	if err != nil {
 		return dbError(err)
 	}
 	return nil

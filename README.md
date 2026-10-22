@@ -1,6 +1,6 @@
 # workbox
 
-Prepare local Git workspaces from reusable configurations. `workbox` stores repository sources and workspace layouts in SQLite, validates real remote branches, and clones clean analysis baselines. Initialization scripts are returned to the caller as text and **never executed by the CLI**.
+Prepare local Git workspaces from reusable configurations. `workbox` stores repository sources and workspace layouts in SQLite (default) or MySQL, validates real remote branches, and clones clean analysis baselines. Initialization scripts are returned to the caller as text and **never executed by the CLI**.
 
 Workbox is written in Go and builds to a single executable with a bundled, pure-Go SQLite engine. Users need Git, with existing HTTPS/SSH authentication configured. Supported build targets are macOS and Linux on ARM64 and AMD64; Windows is not supported in this release. Development checkouts use native Git worktrees inside the same workspace.
 
@@ -130,14 +130,35 @@ Workspace repository lists contain only `repo` and `target_dir`. Repository sele
 
 ## Storage and portability
 
-The DB is `config.db` below the first applicable configuration root:
+SQLite is the default backend; `WORKBOX_DB=sqlite` also selects it explicitly. Its DB is `config.db` below the first applicable configuration root:
 
 1. Nonempty `WORKBOX_CONFIG_HOME`.
 2. `${XDG_CONFIG_HOME:-~/.config}/workbox`.
 
-Relative roots resolve from the current directory. Only two business tables exist: `repo_config` and `workspace_config`; schema version is `PRAGMA user_version=1`. UUID references are local. There is no workspace instance registry or manifest. Configuration edits affect future creates only.
+Relative roots resolve from the current directory. SQLite schema version remains `PRAGMA user_version=1`, compatible with previous releases.
 
-Missing-DB lists and exports return empty configurations without creating a DB. Missing configuration lookups fail without creating one. Status, help, and version do not read the DB. Invalid writes and failed remote validation do not initialize a DB. Unknown DB versions are rejected without migration; damaged/unreadable DBs are errors. Short read transactions provide snapshots; network checks run outside write transactions. Writes recheck the snapshot under a transaction and reject concurrent changes with `CONFIG_CONFLICT`.
+Starting with 0.2.0, select MySQL with `WORKBOX_DB=mysql` and provide either `WORKBOX_MYSQL_DSN` or `WORKBOX_MYSQL_DSN_FILE`. The database must already exist and be dedicated to Workbox; the first valid write initializes its InnoDB tables. MySQL 8.4 is tested in CI. Remote connections should use TLS with certificate verification, for example:
+
+```sh
+# Store the DSN in a private file (mode 600); replace all placeholders.
+# File contents: workbox:REPLACE_PASSWORD@tcp(db.example.org:3306)/workbox?tls=true
+export WORKBOX_DB=mysql
+export WORKBOX_MYSQL_DSN_FILE=/path/to/private/mysql.dsn
+workbox repo-config list
+```
+
+The SQLite configuration-root variables are ignored when MySQL is selected. Credentials are never included in exported packages or database error messages. Switching backends selects a different store; it does not automatically move data. To copy configurations from SQLite into MySQL:
+
+```sh
+WORKBOX_DB=sqlite workbox config export --output workbox-config.json
+WORKBOX_DB=mysql workbox config import --input workbox-config.json
+```
+
+Both adapters implement the same storage interface, keeping SQL, schema initialization, transactions and locking outside business operations. See [backend setup, migration and adapter contracts](docs/storage.md).
+
+Both backends have two business tables, `repo_config` and `workspace_config`; MySQL also has a `workbox_schema` metadata table. UUID references are local to each store. There is no workspace instance registry or manifest. Configuration edits affect future creates only.
+
+Missing SQLite DBs and empty MySQL databases return empty lists/exports without initializing tables. A nonexistent or inaccessible MySQL database is an error. Missing configuration lookups fail without initialization. Status, help, version, skill installation and uninstall do not connect to the DB. Invalid writes and failed remote validation do not initialize a DB. Unknown DB versions are rejected without migration; damaged/unreadable DBs are errors. Short read transactions provide snapshots; network checks run outside write transactions. Writes recheck the snapshot under a transaction and reject concurrent changes with `CONFIG_CONFLICT`. Uninstall preserves both local and remote configuration.
 
 ```sh
 workbox config export --output workbox-config.json --format json
@@ -157,7 +178,7 @@ Each checkout reports `kind`, relative `path`, `branch`, full `commit`, `clean`,
 JSON stdout always contains exactly one envelope, even for parser errors:
 
 ```json
-{"ok": true, "data": {"program": "workbox", "version": "0.1.3"}, "error": null}
+{"ok": true, "data": {"program": "workbox", "version": "0.2.0"}, "error": null}
 ```
 
 Errors use `{"code":"...","message":"...","details":{}}`; partial results remain in `data`. Diagnostic output belongs on stderr. Create errors retain the directory and report each repository as `completed`, `failed` or `not_attempted`, including actual commits already read. There is no rollback, overwrite, resume, or cleanup. Use a fresh target or explicitly handle the existing directory. SIGINT/SIGTERM return best-effort partial JSON with exit 130; process crashes/forced kills cannot promise output.
@@ -178,8 +199,8 @@ go test ./...
 go test -race ./...
 ```
 
-Tests isolate all configuration state and Git configuration in temporary directories. HTTPS-shaped URLs are redirected by Git's `insteadOf` to temporary local remotes, so actual branch queries, clones, status, submodules, and linked worktrees run without network or user credentials. Fault injection covers concurrent writes, path races, cancellation, timeout and partial clone failures. Actual permission failures and process signals are also checked. No tests touch the user's DB or working repositories. See [test contracts](docs/testing.md).
+Tests isolate all configuration state and Git configuration in temporary directories. HTTPS-shaped URLs are redirected by Git's `insteadOf` to temporary local remotes, so actual branch queries, clones, status, submodules, and linked worktrees run without network or user credentials. Fault injection covers concurrent writes, path races, cancellation, timeout and partial clone failures. Actual permission failures and process signals are also checked. MySQL integration tests run only with an explicit `WORKBOX_TEST_MYSQL_DSN` and create random, test-owned databases; CI uses an ephemeral MySQL 8.4 service. No tests use deployment credentials or working repositories. See [test contracts](docs/testing.md).
 
-`make release VERSION=0.1.3` cross-compiles the four targets, creates archives and SHA-256 checksums, and generates a source formula pinned to the release's Git revision. The release workflow builds native macOS Homebrew bottles and adds their checksums before publishing. The output directory must not already exist; build failures preserve partial artifacts. Run `sh scripts/check-install.sh workbox` to check an installed executable with temporary configuration and workspace directories. See [distribution and release instructions](docs/distribution.md).
+`make release VERSION=0.2.0` cross-compiles the four targets, creates archives and SHA-256 checksums, and generates a source formula pinned to the release's Git revision. The release workflow builds native macOS Homebrew bottles and adds their checksums before publishing. The output directory must not already exist; build failures preserve partial artifacts. Run `sh scripts/check-install.sh workbox` to check an installed executable with temporary configuration and workspace directories. See [distribution and release instructions](docs/distribution.md).
 
-Version 0.1 intentionally excludes script execution, worktree create/delete commands, baseline synchronization, branch overrides, migrations, import overwrite, background jobs and persistent workspace state.
+Version 0.2 intentionally excludes script execution, worktree create/delete commands, baseline synchronization, branch overrides, automatic schema migrations, import overwrite, background jobs and persistent workspace state.

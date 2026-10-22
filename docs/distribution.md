@@ -1,6 +1,6 @@
 # Distribution and releases
 
-Workbox is distributed through GitHub Releases and the self-managed `MaybeLL/homebrew-tap`. The implementation is Go with a pure-Go SQLite driver. Precompiled binaries need Git but no Go, Python or separately installed SQLite.
+Workbox is distributed through GitHub Releases and the self-managed `MaybeLL/homebrew-tap`. The implementation is Go with pure-Go SQLite and MySQL drivers. Precompiled binaries need Git but no Go, Python or separately installed SQLite. SQLite remains the default; MySQL requires an existing dedicated server database and connection settings. See [storage setup](storage.md).
 
 Starting with 0.1.1, run `workbox skill install` after installing the executable to install its bundled `workbox` skill into `~/.agents/skills/workbox`. Installing or upgrading the executable does not automatically write to an agent's configuration. The skill and its references are embedded in each binary and also included under `skills/workbox` in release archives. Skill installation works offline; `--path DIR` selects a different skills parent directory. Different existing content is preserved and reported as a conflict.
 
@@ -55,14 +55,14 @@ Use Go 1.26+ in module mode:
 ```sh
 go test ./...
 go test -race ./...
-make release VERSION=0.1.3
+make release VERSION=0.2.0
 ```
 
 The new `dist` directory contains four CGO-free binaries in archives, checksums, and the initial Homebrew source formula. The output directory must not already exist. Packaging uses the Go standard library and Go tooling; failures preserve partial artifacts. Source paths are removed using `-trimpath`.
 
 Validate the native executable using `sh scripts/check-install.sh /path/to/workbox`, verify archive hashes and formula syntax, then test Homebrew installation using the exact public artifacts. The script isolates home, installation records, configuration and workspaces in a temporary directory, then runs a real self-uninstall on a disposable executable copy. Test upgrade from the previous release once one exists. Cross-compilation alone does not prove runtime compatibility; CI runs tests on macOS and Linux.
 
-CI tests both systems. The release workflow runs on version tags such as `v0.1.0`, tests, packages a draft, builds and tests bottles, merges their metadata, then publishes all assets together. Public archive installation checks and a real Homebrew install/skill-install/uninstall check on an ephemeral macOS runner run after publication. Updating the separate tap is an explicit maintainer step; the workflow requires no cross-repository token.
+CI tests both systems and runs the shared storage contracts and integration tests against an ephemeral MySQL 8.4 service. Require a successful CI run for the release commit, including MySQL, before tagging. The release workflow runs on version tags such as `v0.2.0`, tests, packages a draft, builds and tests bottles, merges their metadata, then publishes all assets together. Public archive installation checks and a real Homebrew install/skill-install/uninstall check on an ephemeral macOS runner run after publication. Updating the separate tap is an explicit maintainer step; the workflow requires no cross-repository token.
 
 If publication fails after both bottles have been uploaded, run the Release workflow manually with that draft's `release_tag`. This resumes metadata merging, publication and public installation checks. It requires an existing draft and both macOS bottle metadata files; published releases cannot be overwritten through this recovery path. The publishing job explicitly trusts the formula created from the project's own release asset before asking Homebrew to merge it.
 

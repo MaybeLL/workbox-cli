@@ -19,3 +19,28 @@ jobs:
           go-version: '1.26.x'
       - run: go test -race ./...
       - run: CGO_ENABLED=0 go build -trimpath ./cmd/workbox
+  mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: workbox-test
+          MYSQL_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -pworkbox-test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    env:
+      WORKBOX_TEST_MYSQL_DSN: root:workbox-test@tcp(127.0.0.1:3306)/?tls=false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+      - run: go test -race -count=1 -v ./...

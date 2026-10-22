@@ -10,6 +10,10 @@ The installation smoke script repeats real self-uninstall on a disposable copy o
 
 The configuration/CLI tests cover missing-DB reads, strict parser and JSON envelopes, branch/tag validation, save failures preserving content, reference protection, file replacement/clearing, UTF-8 and original script bytes, schema failures, legacy schema compatibility, and configuration-root precedence.
 
+Both SQLite and MySQL run the same storage contract: detached consistent snapshots, preserved IDs and Unicode, stale-write rejection, concurrent first-write serialization, deletion, and rollback after an injected SQL trigger failure. A small test-only memory adapter verifies business commands depend on the storage interface. Backend selection tests cover invalid settings, DSN-file loading and credential redaction; local-only commands work even with an invalid backend setting.
+
+MySQL integration tests require the explicit `WORKBOX_TEST_MYSQL_DSN`, never deployment `WORKBOX_MYSQL_DSN`. Each creates a random, owned database and drops only that database during cleanup. The test account needs database creation/deletion and trigger privileges on a disposable server. CI supplies an ephemeral MySQL 8.4 service. Tests also verify no schema writes on reads, interrupted setup recovery through a real business command, unknown-version/table/engine rejection, scripts exceeding 64 KiB, MySQL/SQLite JSON transfers, real Git workspace creation, and a subprocess using a DSN file. Without the test variable these tests are explicitly skipped; ordinary local checks do not prove MySQL integration.
+
 Workspace agent-entry tests verify that new and empty workspaces receive a regular, non-executable root `AGENTS.md`, plan remains read-only, and no local skill directories or user-global skill installs are created. Real cloned repository rules and clean baselines are preserved. Exclusive file creation rejects files, links and directories without overwriting them; replacement during clone fails with partial output. Case-insensitive targets overlapping root `AGENTS.md` are rejected, including previously saved configurations, before any directory is created.
 
 The workspace tests verify plan makes no directories, create returns only prepared, full-history cloning and actual commits, script handoff without execution, independent plan/create snapshots, in-flight script snapshot consistency, exclusive targets and symlink races, and partial results after second-clone failure or cancellation. The handoff integration test separately executes and checks a declared artifact and verifies baseline HEAD/files remain unchanged.
@@ -27,3 +31,12 @@ go build ./cmd/workbox
 go test ./...
 go test -race ./...
 ```
+
+To run the real MySQL suite against a disposable local test server:
+
+```sh
+WORKBOX_TEST_MYSQL_DSN='root:TEST_PASSWORD@tcp(127.0.0.1:3306)/?tls=false' \
+  go test -race -count=1 -v ./...
+```
+
+The installation smoke script forces SQLite and clears inherited MySQL connection settings so it cannot write to a configured deployment database.

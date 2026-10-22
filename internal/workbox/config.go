@@ -2,7 +2,6 @@ package workbox
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -14,12 +13,12 @@ func (a *app) crud(ctx context.Context, c command) (any, *Failure) {
 	if e != nil {
 		return nil, e
 	}
-	table := "workspace_config"
+	entity := "workspace_config"
 	if c.entity == "repo-config" {
-		table = "repo_config"
+		entity = "repo_config"
 	}
 	if c.action == "list" {
-		if table == "repo_config" {
+		if entity == "repo_config" {
 			rows := []Repo{}
 			for _, name := range names(s.Repos) {
 				rows = append(rows, s.Repos[name])
@@ -42,27 +41,27 @@ func (a *app) crud(ctx context.Context, c command) (any, *Failure) {
 	r, hasRepo := s.Repos[c.name]
 	w, hasWorkspace := s.Workspaces[c.name]
 	exists := hasWorkspace
-	if table == "repo_config" {
+	if entity == "repo_config" {
 		exists = hasRepo
 	}
 	if c.action != "add" && !exists {
-		return nil, missing(table, c.name)
+		return nil, missing(entity, c.name)
 	}
 	if c.action == "add" && exists {
 		return nil, fail("CONFIG_CONFLICT", "Configuration name already exists")
 	}
 	if c.action == "show" {
-		if table == "repo_config" {
-			return map[string]any{table: r}, nil
+		if entity == "repo_config" {
+			return map[string]any{entity: r}, nil
 		}
 		result, e := s.public(w)
 		if e != nil {
 			return nil, e
 		}
-		return map[string]any{table: result}, nil
+		return map[string]any{entity: result}, nil
 	}
 	if c.action == "remove" {
-		if table == "repo_config" {
+		if entity == "repo_config" {
 			used := []string{}
 			for _, name := range names(s.Workspaces) {
 				for _, ref := range s.Workspaces[name].Repos {
@@ -78,22 +77,22 @@ func (a *app) crud(ctx context.Context, c command) (any, *Failure) {
 				return nil, e
 			}
 		}
-		e := a.store.mutate(ctx, s, func(tx *sql.Tx, _ snapshot) *Failure {
-			_, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE name=?", c.name)
-			if err != nil {
-				return dbError(err)
-			}
-			return nil
-		})
+		next := s.clone()
+		if entity == "repo_config" {
+			delete(next.Repos, c.name)
+		} else {
+			delete(next.Workspaces, c.name)
+		}
+		e := a.store.commit(ctx, s, next)
 		if e != nil {
 			return nil, e
 		}
-		return map[string]any{"removed": map[string]string{"entity": table, "name": c.name}}, nil
+		return map[string]any{"removed": map[string]string{"entity": entity, "name": c.name}}, nil
 	}
 	if c.action == "update" && len(c.flags) == 0 {
 		return nil, fail("INVALID_ARGUMENTS", "update requires at least one changed field")
 	}
-	if table == "repo_config" {
+	if entity == "repo_config" {
 		r.Name = c.name
 		if value, ok := c.flags["url"]; ok {
 			r.URL = value
@@ -113,18 +112,13 @@ func (a *app) crud(ctx context.Context, c command) (any, *Failure) {
 				return nil, e
 			}
 		}
-		e = a.store.mutate(ctx, s, func(tx *sql.Tx, _ snapshot) *Failure {
-			if exists {
-				if _, err := tx.ExecContext(ctx, "DELETE FROM repo_config WHERE id=?", r.ID); err != nil {
-					return dbError(err)
-				}
-			}
-			return insertRepo(ctx, tx, r)
-		})
+		next := s.clone()
+		next.Repos[r.Name] = r
+		e = a.store.commit(ctx, s, next)
 		if e != nil {
 			return nil, e
 		}
-		return map[string]any{table: r}, nil
+		return map[string]any{entity: r}, nil
 	}
 	value := Workspace{Name: c.name, Repos: []Ref{}}
 	if exists {
@@ -167,18 +161,13 @@ func (a *app) crud(ctx context.Context, c command) (any, *Failure) {
 		}
 	}
 	w = workspaceRow{ID: value.ID, Name: value.Name, Repos: refs, Script: value.Script}
-	e = a.store.mutate(ctx, s, func(tx *sql.Tx, _ snapshot) *Failure {
-		if exists {
-			if _, err := tx.ExecContext(ctx, "DELETE FROM workspace_config WHERE id=?", w.ID); err != nil {
-				return dbError(err)
-			}
-		}
-		return insertWorkspace(ctx, tx, w)
-	})
+	next := s.clone()
+	next.Workspaces[w.Name] = w
+	e = a.store.commit(ctx, s, next)
 	if e != nil {
 		return nil, e
 	}
-	return map[string]any{table: value}, nil
+	return map[string]any{entity: value}, nil
 }
 
 func (a *app) export(ctx context.Context, output string) (any, *Failure) {
@@ -292,39 +281,33 @@ func (a *app) importFile(ctx context.Context, input string) (any, *Failure) {
 	if len(incoming.Repos) == 0 && len(incoming.Workspaces) == 0 {
 		return result, nil
 	}
-	e = a.store.mutate(ctx, s, func(tx *sql.Tx, current snapshot) *Failure {
-		for _, r := range incoming.Repos {
-			if _, ok := current.Repos[r.Name]; ok {
-				continue
-			}
-			id, e := uuid()
-			if e != nil {
-				return e
-			}
-			r.ID = id
-			if e := insertRepo(ctx, tx, r); e != nil {
-				return e
-			}
-			current.Repos[r.Name] = r
+	next := s.clone()
+	for _, r := range incoming.Repos {
+		if _, ok := next.Repos[r.Name]; ok {
+			continue
 		}
-		for _, w := range incoming.Workspaces {
-			if _, ok := current.Workspaces[w.Name]; ok {
-				continue
-			}
-			id, e := uuid()
-			if e != nil {
-				return e
-			}
-			refs, e := current.internal(w.Repos)
-			if e != nil {
-				return e
-			}
-			if e := insertWorkspace(ctx, tx, workspaceRow{ID: id, Name: w.Name, Repos: refs, Script: w.Script}); e != nil {
-				return e
-			}
+		id, e := uuid()
+		if e != nil {
+			return nil, e
 		}
-		return nil
-	})
+		r.ID = id
+		next.Repos[r.Name] = r
+	}
+	for _, w := range incoming.Workspaces {
+		if _, ok := next.Workspaces[w.Name]; ok {
+			continue
+		}
+		id, e := uuid()
+		if e != nil {
+			return nil, e
+		}
+		refs, e := next.internal(w.Repos)
+		if e != nil {
+			return nil, e
+		}
+		next.Workspaces[w.Name] = workspaceRow{ID: id, Name: w.Name, Repos: refs, Script: w.Script}
+	}
+	e = a.store.commit(ctx, s, next)
 	if e != nil {
 		return nil, e
 	}

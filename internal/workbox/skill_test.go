@@ -113,7 +113,7 @@ func TestSkillInstallDefaultAndRepeat(t *testing.T) {
 	if err != nil || !info.ModTime().Equal(fixed) || data["state"] != "unchanged" {
 		t.Fatalf("repeat rewrote installation: %v %v", data, err)
 	}
-	if a.store.path != "" {
+	if a.store != nil {
 		t.Fatal("skill installation initialized the configuration store")
 	}
 }

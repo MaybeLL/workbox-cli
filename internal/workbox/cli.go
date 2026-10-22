@@ -11,7 +11,7 @@ import (
 )
 
 type app struct {
-	store     store
+	store     configStore
 	gitRunner gitRunner
 }
 type command struct {
@@ -53,6 +53,11 @@ Skill install copies the bundled skill to ~/.agents/skills/workbox by default.
 --path selects a different skills parent directory. Existing differences are never overwritten.
 Uninstall removes the CLI and unmodified companion skills; configuration and workspaces are preserved.
 --dry-run previews uninstall. --skill-path locates a custom skill installed by an older version.
+
+Storage: WORKBOX_DB=sqlite (default) or mysql.
+SQLite uses WORKBOX_CONFIG_HOME, otherwise ${XDG_CONFIG_HOME:-~/.config}/workbox.
+MySQL requires WORKBOX_MYSQL_DSN or WORKBOX_MYSQL_DSN_FILE, selecting a dedicated existing database.
+Changing the backend does not copy data; use config export/import to transfer configurations.
 `
 
 func outputFormat(args []string) ([]string, string, *Failure) {
@@ -229,12 +234,12 @@ func (a *app) execute(ctx context.Context, c command) (any, *Failure) {
 	if c.entity == "workspace" && c.action == "status" {
 		return a.status(ctx, c.flags["path"])
 	}
-	if a.store.path == "" {
-		path, e := configPath()
+	if a.store == nil {
+		backend, e := configuredStore()
 		if e != nil {
 			return nil, e
 		}
-		a.store.path = path
+		a.store = backend
 	}
 	switch c.entity {
 	case "repo-config", "workspace-config":

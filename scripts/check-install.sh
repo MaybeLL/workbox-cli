@@ -8,6 +8,8 @@ trap 'rm -rf "$smoke_root"' EXIT HUP INT TERM
 mkdir -p "$smoke_root/home"
 export HOME="$smoke_root/home"
 export WORKBOX_STATE_HOME="$smoke_root/state"
+export WORKBOX_DB=sqlite
+unset WORKBOX_MYSQL_DSN WORKBOX_MYSQL_DSN_FILE WORKBOX_TEST_MYSQL_DSN
 
 call() {
   WORKBOX_CONFIG_HOME="$smoke_root/config" "$binary" "$@" --format json

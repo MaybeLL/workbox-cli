@@ -41,6 +41,7 @@ type fixture struct {
 	t                      *testing.T
 	root, remotes, realGit string
 	app                    *app
+	sqlite                 *sqliteStore
 }
 
 func setup(t *testing.T) *fixture {
@@ -57,8 +58,12 @@ func setup(t *testing.T) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fixture{t: t, root: root, remotes: remotes, realGit: gitPath, app: &app{store: store{filepath.Join(root, "config", "config.db")}, gitRunner: gitCLI{}}}
+	localStore := &sqliteStore{path: filepath.Join(root, "config", "config.db")}
+	f := &fixture{t: t, root: root, remotes: remotes, realGit: gitPath, sqlite: localStore, app: &app{store: localStore, gitRunner: gitCLI{}}}
 	empty := f.file("gitconfig", "")
+	t.Setenv("WORKBOX_DB", "sqlite")
+	t.Setenv("WORKBOX_MYSQL_DSN", "")
+	t.Setenv("WORKBOX_MYSQL_DSN_FILE", "")
 	for key, value := range map[string]string{"WORKBOX_CONFIG_HOME": filepath.Join(root, "config"), "GIT_CONFIG_GLOBAL": empty, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "url.file://" + filepath.ToSlash(remotes) + "/.insteadOf", "GIT_CONFIG_VALUE_0": "https://example.test/", "GIT_CONFIG_KEY_1": "protocol.file.allow", "GIT_CONFIG_VALUE_1": "always", "GIT_AUTHOR_NAME": "Test User", "GIT_AUTHOR_EMAIL": "test@example.test", "GIT_COMMITTER_NAME": "Test User", "GIT_COMMITTER_EMAIL": "test@example.test", "GIT_TERMINAL_PROMPT": "0"} {
 		t.Setenv(key, value)
 	}
@@ -139,7 +144,7 @@ func (f *fixture) create() string {
 func errorCode(result map[string]any) string { return object(result["error"])["code"].(string) }
 func (f *fixture) sql(statement string, args ...any) {
 	f.t.Helper()
-	db, e := f.app.store.open(true)
+	db, e := f.sqlite.open(true)
 	if e != nil {
 		f.t.Fatal(e)
 	}
@@ -206,7 +211,7 @@ func TestEndToEnd(t *testing.T) {
 	if bytes.Contains(raw, []byte(`"id"`)) {
 		t.Fatal("portable package contains IDs")
 	}
-	f.app.store.path = filepath.Join(f.root, "fresh", "config.db")
+	f.sqlite.path = filepath.Join(f.root, "fresh", "config.db")
 	added := object(f.call(0, "config", "import", "--input", output)["data"])
 	if len(array(object(added["added"])["repo_configs"])) != 1 {
 		t.Fatal(added)
@@ -220,7 +225,7 @@ func TestEndToEnd(t *testing.T) {
 	if len(array(object(again["added"])["repo_configs"])) != 0 {
 		t.Fatal(again)
 	}
-	db, e := f.app.store.open(false)
+	db, e := f.sqlite.open(false)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -267,7 +272,7 @@ func TestMissingDBAndParser(t *testing.T) {
 	f.call(0, "--help")
 	f.call(0, "--version")
 	f.call(0, "workspace", "status", "--path", f.remotes)
-	if _, err := os.Stat(f.app.store.path); !os.IsNotExist(err) {
+	if _, err := os.Stat(f.sqlite.path); !os.IsNotExist(err) {
 		t.Fatal("read-only command initialized DB")
 	}
 }
@@ -285,7 +290,7 @@ func TestBranchesAndUnverifiableRemote(t *testing.T) {
 			}
 		})
 	}
-	if _, err := os.Stat(f.app.store.path); !os.IsNotExist(err) {
+	if _, err := os.Stat(f.sqlite.path); !os.IsNotExist(err) {
 		t.Fatal("invalid add created database")
 	}
 	original := f.repo("api")
@@ -553,7 +558,7 @@ func TestEmptyAndFailedImportDoNotInitializeDB(t *testing.T) {
 	f := setup(t)
 	f.call(0, "config", "import", "--input", f.file("empty.json", `{"schema_version":1,"repo_configs":[],"workspace_configs":[]}`))
 	f.call(1, "config", "import", "--input", f.file("bad.json", `{"schema_version":1,"repo_configs":[{"name":"offline","source_url":"https://example.test/offline.git","default_branch":"develop"}],"workspace_configs":[]}`))
-	if _, err := os.Stat(f.app.store.path); !os.IsNotExist(err) {
+	if _, err := os.Stat(f.sqlite.path); !os.IsNotExist(err) {
 		t.Fatal("failed import created DB")
 	}
 }
@@ -589,13 +594,13 @@ func TestSchemaCorruptionAndLegacyDatabase(t *testing.T) {
 		t.Fatal("unsupported schema")
 	}
 	f.call(0, "workspace", "status", "--path", f.remotes)
-	if err := os.WriteFile(f.app.store.path, []byte("not a database"), 0600); err != nil {
+	if err := os.WriteFile(f.sqlite.path, []byte("not a database"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if errorCode(f.call(1, "repo-config", "list")) != "IO_ERROR" {
 		t.Fatal("corrupt DB")
 	}
-	if err := os.Remove(f.app.store.path); err != nil {
+	if err := os.Remove(f.sqlite.path); err != nil {
 		t.Fatal(err)
 	}
 	f.sql("CREATE TABLE repo_config (id TEXT PRIMARY KEY NOT NULL,name TEXT UNIQUE NOT NULL,source_url TEXT NOT NULL,default_branch TEXT NOT NULL)")
@@ -896,7 +901,7 @@ func TestUnreadablePathsAndAbnormalContainer(t *testing.T) {
 	}
 	f := setup(t)
 	root := f.create()
-	configDir := filepath.Dir(f.app.store.path)
+	configDir := filepath.Dir(f.sqlite.path)
 	if err := os.Chmod(configDir, 0); err != nil {
 		t.Fatal(err)
 	}
