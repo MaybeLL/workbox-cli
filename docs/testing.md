@@ -52,3 +52,9 @@ Clack selection tests check retained defaults, navigation, collapsed confirmed a
 Baseline override tests use real local bare remotes to verify branch selection, historical commit checkout and detached HEAD, unchanged shared defaults, clearing overrides, SQLite persistence, import/export round trips, strict ref validation, and failures before target creation.
 
 Summary tests cover Unicode CRUD, explicit clearing, plan projection, import/export compatibility and conflicts, read-only legacy reads, SQLite migration, MySQL interrupted-migration recovery, and cross-backend preservation. Private import scripts are exercised separately with temporary configs and local Git remotes.
+
+Team tests cover multi-team membership, immutable keys/stable IDs on rename,
+referenced-team deletion refusal, filtering and plan projection, idempotent
+membership edits, self-contained imports, remapped IDs, invalid input and
+conflicts, stale writers, read-only legacy snapshots, schema migration, and
+SQLite/MySQL cross-backend ownership preservation.

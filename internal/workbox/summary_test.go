@@ -73,7 +73,7 @@ func TestSQLiteSummaryMigrationReadOnly(t *testing.T) {
 		t.Fatal("read migrated schema", version, err)
 	}
 	f.call(0, "repo-config", "update", "api", "--summary", "new")
-	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 2 {
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 3 {
 		t.Fatal("write did not migrate", version, err)
 	}
 	r = object(object(f.call(0, "repo-config", "show", "api")["data"])["repo_config"])

@@ -30,12 +30,21 @@ func (f *Failure) ExitCode() int {
 }
 func ioFailure(message string) *Failure { return fail("IO_ERROR", message) }
 
-type Repo struct {
+type Team struct {
 	ID      string `json:"id,omitempty"`
+	Key     string `json:"key"`
 	Name    string `json:"name"`
-	URL     string `json:"source_url"`
-	Branch  string `json:"default_branch"`
 	Summary string `json:"summary"`
+}
+
+type Repo struct {
+	Teams   []string `json:"teams,omitempty"`
+	TeamIDs []string `json:"-"`
+	ID      string   `json:"id,omitempty"`
+	Name    string   `json:"name"`
+	URL     string   `json:"source_url"`
+	Branch  string   `json:"default_branch"`
+	Summary string   `json:"summary"`
 }
 type BaselineRef struct {
 	Type  string `json:"type"`
@@ -63,13 +72,17 @@ type workspaceRow struct {
 	Repos            []StoredRef
 }
 type snapshot struct {
+	Teams      map[string]Team
 	Repos      map[string]Repo
 	Workspaces map[string]workspaceRow
 }
 
-func emptySnapshot() snapshot { return snapshot{map[string]Repo{}, map[string]workspaceRow{}} }
+func emptySnapshot() snapshot {
+	return snapshot{Teams: map[string]Team{}, Repos: map[string]Repo{}, Workspaces: map[string]workspaceRow{}}
+}
 
 type Package struct {
+	Teams      []Team      `json:"team_configs,omitempty"`
 	Version    int         `json:"schema_version"`
 	Repos      []Repo      `json:"repo_configs"`
 	Workspaces []Workspace `json:"workspace_configs"`
@@ -100,8 +113,16 @@ func (s snapshot) public(row workspaceRow) (Workspace, *Failure) {
 }
 func (s snapshot) portable() (Package, *Failure) {
 	p := Package{Version: 1, Repos: []Repo{}, Workspaces: []Workspace{}}
+	for _, key := range names(s.Teams) {
+		t := s.Teams[key]
+		t.ID = ""
+		p.Teams = append(p.Teams, t)
+	}
 	for _, name := range names(s.Repos) {
-		r := s.Repos[name]
+		r, e := s.publicRepo(s.Repos[name])
+		if e != nil {
+			return p, e
+		}
 		r.ID = ""
 		p.Repos = append(p.Repos, r)
 	}

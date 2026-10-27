@@ -22,7 +22,12 @@ func sameSnapshot(a, b snapshot) bool { return reflect.DeepEqual(a, b) }
 
 func (s snapshot) clone() snapshot {
 	copy := emptySnapshot()
+	for key, team := range s.Teams {
+		copy.Teams[key] = team
+	}
 	for name, value := range s.Repos {
+		value.TeamIDs = append([]string(nil), value.TeamIDs...)
+		value.Teams = append([]string(nil), value.Teams...)
 		copy.Repos[name] = value
 	}
 	for name, value := range s.Workspaces {

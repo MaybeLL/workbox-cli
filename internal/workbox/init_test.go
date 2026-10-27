@@ -332,6 +332,8 @@ func TestPrivatePublicationReportsDurabilityFailure(t *testing.T) {
 func TestInitMySQLCopyAndCredentialPersistence(t *testing.T) {
 	f := setup(t)
 	f.repo("api")
+	f.call(0, "team-config", "add", "credit", "--name", "授信")
+	f.call(0, "repo-config", "add-team", "api", "--team", "credit")
 	f.call(0, "workspace-config", "add", "analysis", "--repos-file", f.file("refs.json", `[{"repo":"api","target_dir":"api"}]`))
 	before := storeRead(t, f.sqlite)
 	initCall(t, 0, "init", "--backend", "sqlite", "--skip-skill")
@@ -343,6 +345,9 @@ func TestInitMySQLCopyAndCredentialPersistence(t *testing.T) {
 		t.Fatal(r.Data)
 	}
 	target := storeRead(t, mysql)
+	if target.Teams["credit"].ID == before.Teams["credit"].ID || target.Repos["api"].TeamIDs[0] != target.Teams["credit"].ID {
+		t.Fatal("team copy failed")
+	}
 	if target.Repos["api"].ID == before.Repos["api"].ID || len(target.Workspaces) != 1 || !sameSnapshot(before, storeRead(t, f.sqlite)) {
 		t.Fatal("copy failed to remap IDs or modified source")
 	}

@@ -22,6 +22,7 @@ type preparedRepo struct {
 	Error          *Failure    `json:"error"`
 }
 type plannedRepo struct {
+	Teams          []Team         `json:"teams,omitempty"`
 	Summary        string         `json:"summary"`
 	Ref            BaselineRef    `json:"ref"`
 	ResolvedCommit *string        `json:"resolved_commit"`
@@ -204,7 +205,15 @@ func (a *app) prepare(ctx context.Context, name, raw string, create bool) (data 
 		if create {
 			prepared = append(prepared, &preparedRepo{Ref: effectiveRef(repo, ref.Ref), Name: repo.Name, DefaultBranch: repo.Branch, State: "not_attempted"})
 		} else {
-			plans = append(plans, &plannedRepo{Summary: repo.Summary, Ref: effectiveRef(repo, ref.Ref), Name: repo.Name, URL: repo.URL, DefaultBranch: repo.Branch, Target: ref.Target, Checks: map[string]any{"ok": nil}})
+			teams := []Team{}
+			public, e := s.publicRepo(repo)
+			if e != nil {
+				return nil, e
+			}
+			for _, key := range public.Teams {
+				teams = append(teams, s.Teams[key])
+			}
+			plans = append(plans, &plannedRepo{Teams: teams, Summary: repo.Summary, Ref: effectiveRef(repo, ref.Ref), Name: repo.Name, URL: repo.URL, DefaultBranch: repo.Branch, Target: ref.Target, Checks: map[string]any{"ok": nil}})
 		}
 	}
 	if create {

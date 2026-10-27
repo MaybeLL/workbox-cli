@@ -85,7 +85,7 @@ func sqliteSchema(ctx context.Context, tx *sql.Tx) (bool, *Failure) {
 	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return false, dbError(err)
 	}
-	if version == 1 || version == 2 {
+	if version >= 1 && version <= 3 {
 		return true, nil
 	}
 	if version == 0 {
@@ -128,7 +128,7 @@ func (s *sqliteStore) snapshot(ctx context.Context) (snapshot, *Failure) {
 	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return snapshot{}, dbError(err)
 	}
-	return readSnapshot(ctx, tx, version == 2)
+	return readSnapshot(ctx, tx, version)
 }
 func (s *sqliteStore) commit(ctx context.Context, expected, next snapshot) *Failure {
 	_, err := pathExists(s.path)
@@ -170,7 +170,14 @@ func (s *sqliteStore) commit(ctx context.Context, expected, next snapshot) *Fail
 			return dbError(err)
 		}
 	}
-	current, e := readSnapshot(ctx, tx, true)
+	if version < 3 {
+		for _, q := range []string{"CREATE TABLE team_config (id TEXT PRIMARY KEY NOT NULL, team_key TEXT UNIQUE NOT NULL, name TEXT NOT NULL, summary TEXT NOT NULL)", "ALTER TABLE repo_config ADD COLUMN team_ids TEXT NOT NULL DEFAULT '[]'", "PRAGMA user_version=3"} {
+			if _, err := tx.ExecContext(ctx, q); err != nil {
+				return dbError(err)
+			}
+		}
+	}
+	current, e := readSnapshot(ctx, tx, 3)
 	if e != nil {
 		return e
 	}

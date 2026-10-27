@@ -252,3 +252,40 @@ or bundled. A private helper can use `config import` with a repository-only
 package (`workspace_configs: []`): identical entries are unchanged and conflicting
 entries abort the import without overwriting local edits. No presets are installed
 automatically.
+
+## Teams and repository ownership
+
+Teams describe ownership only; they do not grant permissions or manage members.
+A team has an automatically generated local `id`, immutable unique `key`, editable
+`name`, and optional `summary`. Repositories may belong to zero or more teams.
+
+```sh
+workbox team-config add platform --name "Platform" --summary "Shared services"
+workbox team-config list
+workbox team-config show platform
+workbox team-config update platform --name "Platform Engineering"
+workbox repo-config add-team api --team platform
+workbox repo-config list --team platform
+workbox repo-config remove-team api --team platform
+workbox team-config remove platform
+```
+
+Repo add/update also accepts `--teams platform,operations` to replace the complete
+membership set; `--teams ""` clears it. Omission preserves existing membership.
+Add/remove-team are idempotent, require existing entities, and need no remote Git
+access. Team keys follow the same lowercase name rules as repository names.
+Duplicate keys are rejected. Team deletion fails while any repository references it.
+Renaming a team's display name preserves its ID and all memberships.
+
+Repo show/list expose team keys; workspace plans resolve current team details
+through the repository. Workspaces do not store separate ownership. Export/import
+uses optional `team_configs` plus repository `teams` arrays of keys, never local
+team IDs. Packages must include all referenced teams. Import preserves existing
+local IDs, allocates IDs for new teams, skips identical content, and atomically
+rejects conflicts (including display-name or membership differences). Older
+packages without teams remain supported and describe unassigned repositories.
+
+The next write upgrades database schema 1 or 2 to schema 3; reads remain read-only.
+All clients sharing the database must be upgraded before writes, since older
+binaries cannot read schema 3. Existing repository/workspace IDs and references
+are retained. The ignored private catalog is not automatically assigned to teams.

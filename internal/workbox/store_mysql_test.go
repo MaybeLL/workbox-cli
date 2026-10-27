@@ -164,6 +164,8 @@ func TestMySQLBusinessAndCrossBackendTransfer(t *testing.T) {
 		t.Fatal(status)
 	}
 	f.call(0, "repo-config", "update", "api", "--summary", "跨存储说明 🙂")
+	f.call(0, "team-config", "add", "credit", "--name", "授信")
+	f.call(0, "repo-config", "add-team", "api", "--team", "credit")
 	original := storeRead(t, s)
 	first := filepath.Join(f.root, "from-mysql.json")
 	f.call(0, "config", "export", "--output", first)

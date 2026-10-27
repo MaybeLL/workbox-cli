@@ -284,14 +284,47 @@ func (a *app) parsePackage(ctx context.Context, raw []byte) (Package, *Failure) 
 		Version    json.RawMessage `json:"schema_version"`
 		Repos      json.RawMessage `json:"repo_configs"`
 		Workspaces json.RawMessage `json:"workspace_configs"`
+		Teams      json.RawMessage `json:"team_configs"`
 	}
-	if e := exact(raw, &root, "schema_version", "repo_configs", "workspace_configs"); e != nil {
+	rootKeys := []string{"schema_version", "repo_configs", "workspace_configs"}
+	var rootFields map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &rootFields)
+	if _, ok := rootFields["team_configs"]; ok {
+		rootKeys = append(rootKeys, "team_configs")
+	}
+	if e := exact(raw, &root, rootKeys...); e != nil {
 		return p, e
 	}
 	if json.Unmarshal(root.Version, &p.Version) != nil || p.Version != 1 {
 		return p, fail("SCHEMA_UNSUPPORTED", "Only configuration package version 1 is supported")
 	}
 	var rows []json.RawMessage
+	teamKeys := map[string]bool{}
+	if root.Teams != nil {
+		if json.Unmarshal(root.Teams, &rows) != nil {
+			return p, invalid("team_configs must be an array")
+		}
+		for _, row := range rows {
+			var t Team
+			keys := []string{"key", "name"}
+			var fields map[string]json.RawMessage
+			_ = json.Unmarshal(row, &fields)
+			if _, ok := fields["summary"]; ok {
+				keys = append(keys, "summary")
+			}
+			if e := exact(row, &t, keys...); e != nil {
+				return p, e
+			}
+			if e := validateTeam(t); e != nil {
+				return p, e
+			}
+			if teamKeys[t.Key] {
+				return p, invalid("Duplicate team key")
+			}
+			teamKeys[t.Key] = true
+			p.Teams = append(p.Teams, t)
+		}
+	}
 	if json.Unmarshal(root.Repos, &rows) != nil {
 		return p, invalid("repo_configs must be an array")
 	}
@@ -305,8 +338,21 @@ func (a *app) parsePackage(ctx context.Context, raw []byte) (Package, *Failure) 
 		if _, ok := fields["summary"]; ok {
 			keys = append(keys, "summary")
 		}
+		if _, ok := fields["teams"]; ok {
+			keys = append(keys, "teams")
+		}
 		if e := exact(row, &r, keys...); e != nil {
 			return p, e
+		}
+		var e *Failure
+		r.Teams, e = normalizeTeams(r.Teams)
+		if e != nil {
+			return p, e
+		}
+		for _, key := range r.Teams {
+			if !teamKeys[key] {
+				return p, invalid("Package must include every referenced team")
+			}
 		}
 		if e := a.validateRepo(ctx, r); e != nil {
 			return p, e

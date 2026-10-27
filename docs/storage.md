@@ -79,3 +79,14 @@ reject schema 2 instead of silently discarding summaries; upgrade every client
 sharing the database before writing. Portable JSON packages remain version 1 and
 accept omitted summary fields as empty strings; old tools may reject packages
 containing summary fields.
+
+## Team schema migration
+
+Schema 3 adds `team_config` (id, immutable team_key, name, summary) and a JSON
+`repo_config.team_ids` column, defaulting to an empty array. Public configuration
+uses keys; storage uses local IDs. Schema 1/2 reads do not write or migrate. A valid
+write migrates SQLite within its transaction; MySQL serializes resumable DDL and
+publishes version 3 last. Its interrupted team table/column creation can be retried.
+All database writers use optimistic snapshot checking, including memberships.
+Portable packages remain version 1 with optional team_configs and teams fields.
+Older clients must not be used after the database is upgraded.

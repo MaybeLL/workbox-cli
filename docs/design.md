@@ -354,3 +354,12 @@ Repo 配置新增可选 `summary`，支持 add/update 的 `--summary`，空字�
 数据库版本 1 的读取保持只读并返回空摘要；首次有效写入迁移至版本 2，保留 ID 和引用。
 摘要仅作人工维护的导航说明，不是代码事实。开源发行不内置业务仓库清单；
 `/local/` 被 Git 忽略且不纳入发布归档，用于私有清单和基于公开 CLI 的本地导入脚本。
+
+## Team ownership
+
+Team(id, key, name, summary) 是独立实体，key 唯一且不可变，name 可修改。
+Repo 通过本地 Team ID 保存 0..N 个归属；Workspace 沿 Repo 解析当前团队信息。
+团队删除需先解除所有 Repo 引用；不管理用户成员或权限。
+公开 CLI 和导入导出使用 key，跨机器导入生成新的本地 ID；同名不同内容整批拒绝。
+存储版本 3 新增 team_config 和 repo_config.team_ids；旧版读取保持只读，首次有效
+写入按 SQLite 事务或 MySQL schema lock 迁移，旧引用和 ID 保持不变。

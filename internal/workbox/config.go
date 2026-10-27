@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func (a *app) crud(ctx context.Context, c command) (any, *Failure) {
@@ -19,9 +20,29 @@ func (a *app) crud(ctx context.Context, c command) (any, *Failure) {
 	}
 	if c.action == "list" {
 		if entity == "repo_config" {
+			if key, ok := c.flags["team"]; ok {
+				if _, found := s.Teams[key]; !found {
+					return nil, missing("team_config", key)
+				}
+			}
 			rows := []Repo{}
 			for _, name := range names(s.Repos) {
-				rows = append(rows, s.Repos[name])
+				r, e := s.publicRepo(s.Repos[name])
+				if e != nil {
+					return nil, e
+				}
+				if key, filter := c.flags["team"]; filter {
+					found := false
+					for _, k := range r.Teams {
+						if k == key {
+							found = true
+						}
+					}
+					if !found {
+						continue
+					}
+				}
+				rows = append(rows, r)
 			}
 			return map[string]any{"repo_configs": rows}, nil
 		}
@@ -52,6 +73,10 @@ func (a *app) crud(ctx context.Context, c command) (any, *Failure) {
 	}
 	if c.action == "show" {
 		if entity == "repo_config" {
+			r, e := s.publicRepo(r)
+			if e != nil {
+				return nil, e
+			}
 			return map[string]any{entity: r}, nil
 		}
 		result, e := s.public(w)
@@ -93,6 +118,21 @@ func (a *app) crud(ctx context.Context, c command) (any, *Failure) {
 		return nil, fail("INVALID_ARGUMENTS", "update requires at least one changed field")
 	}
 	if entity == "repo_config" {
+		r, e = s.publicRepo(r)
+		if e != nil {
+			return nil, e
+		}
+		if value, ok := c.flags["teams"]; ok {
+			r.Teams = nil
+			if value != "" {
+				r.Teams = strings.Split(value, ",")
+			}
+		}
+		stored, err := s.internalRepo(r)
+		if err != nil {
+			return nil, err
+		}
+		r.TeamIDs = stored.TeamIDs
 		r.Name = c.name
 		if value, ok := c.flags["url"]; ok {
 			r.URL = value
@@ -116,8 +156,14 @@ func (a *app) crud(ctx context.Context, c command) (any, *Failure) {
 			}
 		}
 		next := s.clone()
-		next.Repos[r.Name] = r
+		stored = r
+		stored.Teams = nil
+		next.Repos[r.Name] = stored
 		e = a.store.commit(ctx, s, next)
+		if e != nil {
+			return nil, e
+		}
+		r, e = next.publicRepo(stored)
 		if e != nil {
 			return nil, e
 		}
@@ -249,6 +295,22 @@ func (a *app) importPackage(ctx context.Context, incoming Package) (any, *Failur
 	}
 	added := map[string][]string{"repo_configs": {}, "workspace_configs": {}}
 	unchanged := map[string][]string{"repo_configs": {}, "workspace_configs": {}}
+	if len(incoming.Teams) > 0 {
+		added["team_configs"] = []string{}
+		unchanged["team_configs"] = []string{}
+	}
+	for _, team := range incoming.Teams {
+		old, ok := s.Teams[team.Key]
+		old.ID = ""
+		if ok && !jsonEqual(old, team) {
+			return nil, fail("CONFIG_CONFLICT", "Imported team conflicts with local content")
+		}
+		if ok {
+			unchanged["team_configs"] = append(unchanged["team_configs"], team.Key)
+		} else {
+			added["team_configs"] = append(added["team_configs"], team.Key)
+		}
+	}
 	localRepos := map[string]Repo{}
 	for _, r := range local.Repos {
 		localRepos[r.Name] = r
@@ -285,10 +347,21 @@ func (a *app) importPackage(ctx context.Context, incoming Package) (any, *Failur
 		}
 	}
 	result := map[string]any{"schema_version": 1, "added": added, "unchanged": unchanged}
-	if len(incoming.Repos) == 0 && len(incoming.Workspaces) == 0 {
+	if len(incoming.Repos) == 0 && len(incoming.Workspaces) == 0 && len(incoming.Teams) == 0 {
 		return result, nil
 	}
 	next := s.clone()
+	for _, team := range incoming.Teams {
+		if _, ok := next.Teams[team.Key]; ok {
+			continue
+		}
+		id, e := uuid()
+		if e != nil {
+			return nil, e
+		}
+		team.ID = id
+		next.Teams[team.Key] = team
+	}
 	for _, r := range incoming.Repos {
 		if _, ok := next.Repos[r.Name]; ok {
 			continue
@@ -298,6 +371,10 @@ func (a *app) importPackage(ctx context.Context, incoming Package) (any, *Failur
 			return nil, e
 		}
 		r.ID = id
+		r, e = next.internalRepo(r)
+		if e != nil {
+			return nil, e
+		}
 		next.Repos[r.Name] = r
 	}
 	for _, w := range incoming.Workspaces {

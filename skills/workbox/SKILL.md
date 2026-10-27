@@ -21,7 +21,7 @@ Check `data.settings.publication`, `data.initialized`, and the per-step states. 
 Use `--format json` for commands. Check the exit code, `ok`, `error`, and any partial `data`. An interrupted or failed create can leave a useful directory; inspect the result before deciding the next action.
 
 - Discover existing names with `repo-config list` and `workspace-config list` before creating or selecting configurations. A repo configuration specifies a remote URL and an exact existing default branch. Do not guess either.
-- Repo configurations support optional `--summary TEXT` on add/update; an empty string clears it. Summaries are shared navigation hints, not behavioral evidence. Workspace plans expose them. Version-1 databases are read without changes and migrate to schema 2 on the next write; do not use older binaries with migrated databases.
+- Repo configurations support optional `--summary TEXT` on add/update; an empty string clears it. Summaries are shared navigation hints, not behavioral evidence. Workspace plans expose them. Version-1 databases are read without changes and migrate to schema 3 on the next write; do not use older binaries with migrated databases.
 - A workspace configuration selects repo names and relative target directories through a JSON file, for example `[{"repo":"api","target_dir":"repos/api"}]`. It can also store an initialization script using `--init-script-file`.
 - Repository selections may optionally include `"ref":{"type":"branch","value":"release/v2"}` or `"ref":{"type":"commit","value":"<full lowercase SHA>"}`. Omission inherits the Repo default; omit it in an updated repos array to clear an override. Never put a SHA in `default_branch`. Plan/create report the effective ref and resolved SHA; commit baselines have detached HEAD. Overrides do not change shared Repo defaults or existing checkouts. Commit verification may fetch into a disposable temporary repository, and inaccessible commits fail without fallback.
 - Use `config export --output FILE` and `config import --input FILE` to transfer configuration. Import rejects conflicting content rather than overwriting it.
@@ -35,3 +35,14 @@ Read [the initialization and worktree workflow](references/agent-guide.md) when 
 `workspace create` returns `state: "prepared"` and the exact `init_script` from that create's snapshot. The CLI never runs the script. Preparation alone does not establish successful initialization; review the returned script within the user's authorization and verify its intended artifacts.
 
 There are no `workbox worktree` commands in this version. Use native Git worktrees under the workspace's `.workbox/worktree/` directory according to the referenced workflow. Keep development changes and outputs in the development worktree.
+
+## Teams
+
+Use `team-config add KEY --name NAME [--summary TEXT]`, list/show/update/remove
+for ownership metadata. Keys are immutable; names are display labels. Repos may
+have multiple teams: use `repo-config add-team/remove-team NAME --team KEY` or
+replace the set with add/update `--teams KEY1,KEY2` (empty clears). List repos with
+`--team KEY`. Referenced teams cannot be removed. No member/permission management.
+Export/import carries team keys and self-contained team configs, not local IDs.
+Database writes upgrade schema 1/2 to 3; upgrade shared clients first. Never infer
+or assign organizational ownership without user-provided evidence.

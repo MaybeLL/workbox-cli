@@ -243,7 +243,7 @@ func TestEndToEnd(t *testing.T) {
 		}
 		tables = append(tables, name)
 	}
-	if !reflect.DeepEqual(tables, []string{"repo_config", "workspace_config"}) {
+	if !reflect.DeepEqual(tables, []string{"repo_config", "team_config", "workspace_config"}) {
 		t.Fatal(tables)
 	}
 }

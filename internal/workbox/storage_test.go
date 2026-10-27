@@ -89,7 +89,8 @@ func TestStorageContract(t *testing.T) {
 				t.Fatal("new store is not empty")
 			}
 			next := empty.clone()
-			next.Repos["api"] = Repo{ID: "11111111-1111-4111-8111-111111111111", Name: "api", URL: "https://example.test/服务.git", Branch: "develop", Summary: "服务说明 🙂"}
+			next.Teams["credit"] = Team{ID: "33333333-3333-4333-8333-333333333333", Key: "credit", Name: "授信", Summary: "团队"}
+			next.Repos["api"] = Repo{ID: "11111111-1111-4111-8111-111111111111", Name: "api", URL: "https://example.test/服务.git", Branch: "develop", Summary: "服务说明 🙂", TeamIDs: []string{next.Teams["credit"].ID}}
 			next.Workspaces["analysis"] = workspaceRow{ID: "22222222-2222-4222-8222-222222222222", Name: "analysis", Script: "#!/bin/sh\n# 你好 🙂\nprintf ready\n", Repos: []StoredRef{{ID: next.Repos["api"].ID, Target: "repos/服务", Ref: &BaselineRef{Type: "branch", Value: "release/v2"}}}}
 			storeCommit(t, s, empty, next)
 			actual := storeRead(t, s)
@@ -99,6 +100,10 @@ func TestStorageContract(t *testing.T) {
 			actual.Workspaces["analysis"].Repos[0].Target = "changed-locally"
 			actual.Workspaces["analysis"].Repos[0].Ref.Value = "changed-locally"
 			cloned := next.clone()
+			cloned.Repos["api"].TeamIDs[0] = "changed-clone"
+			if next.Repos["api"].TeamIDs[0] != next.Teams["credit"].ID {
+				t.Fatal("clone aliases membership")
+			}
 			cloned.Workspaces["analysis"].Repos[0].Ref.Value = "changed-clone"
 			if next.Workspaces["analysis"].Repos[0].Ref.Value != "release/v2" {
 				t.Fatal("clone aliases ref")

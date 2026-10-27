@@ -29,11 +29,18 @@ const usage = `Usage: workbox COMMAND [--format text|json]
   init [--backend sqlite|mysql] [--mysql-dsn-file FILE]
        [--install-skill | --skip-skill] [--skill-path DIR]
        [--copy-config | --no-copy-config]
-  repo-config add NAME --url URL --default-branch BRANCH [--summary TEXT]
-  repo-config list
+  repo-config add NAME --url URL --default-branch BRANCH [--summary TEXT] [--teams KEY1,KEY2]
+  repo-config list [--team KEY]
   repo-config show NAME
-  repo-config update NAME [--url URL] [--default-branch BRANCH] [--summary TEXT]
+  repo-config update NAME [--url URL] [--default-branch BRANCH] [--summary TEXT] [--teams KEY1,KEY2]
   repo-config remove NAME
+  team-config add KEY --name NAME [--summary TEXT]
+  team-config list
+  team-config show KEY
+  team-config update KEY [--name NAME] [--summary TEXT]
+  team-config remove KEY
+  repo-config add-team NAME --team KEY
+  repo-config remove-team NAME --team KEY
   workspace-config add NAME [--repos-file FILE] [--init-script-file FILE]
   workspace-config list
   workspace-config show NAME
@@ -130,15 +137,22 @@ func parse(args []string) (command, *Failure) {
 	case "uninstall":
 		allowed["dry-run"] = true
 		allowed["skill-path"] = true
-	case "repo-config", "workspace-config":
+	case "repo-config", "workspace-config", "team-config":
 		switch c.action {
 		case "add", "update":
 			if c.entity == "repo-config" {
 				allowed["url"] = true
 				allowed["default-branch"] = true
 				allowed["summary"] = true
+				allowed["teams"] = true
 				if c.action == "add" {
 					required = []string{"url", "default-branch"}
+				}
+			} else if c.entity == "team-config" {
+				allowed["name"] = true
+				allowed["summary"] = true
+				if c.action == "add" {
+					required = []string{"name"}
 				}
 			} else {
 				allowed["repos-file"] = true
@@ -148,6 +162,16 @@ func parse(args []string) (command, *Failure) {
 		case "show", "remove":
 			needsName = true
 		case "list":
+			if c.entity == "repo-config" {
+				allowed["team"] = true
+			}
+		case "add-team", "remove-team":
+			if c.entity != "repo-config" {
+				return c, bad
+			}
+			needsName = true
+			allowed["team"] = true
+			required = []string{"team"}
 		default:
 			return c, bad
 		}
@@ -248,7 +272,7 @@ func parse(args []string) (command, *Failure) {
 			return c, e
 		}
 	}
-	if (c.entity == "repo-config" || c.entity == "workspace-config") && c.action == "update" && len(c.flags) == 0 {
+	if (c.entity == "repo-config" || c.entity == "workspace-config" || c.entity == "team-config") && c.action == "update" && len(c.flags) == 0 {
 		return c, bad
 	}
 	return c, nil
@@ -278,7 +302,13 @@ func (a *app) execute(ctx context.Context, c command) (any, *Failure) {
 		a.store = backend
 	}
 	switch c.entity {
-	case "repo-config", "workspace-config":
+	case "repo-config", "workspace-config", "team-config":
+		if c.entity == "team-config" {
+			return a.teamCRUD(ctx, c)
+		}
+		if c.action == "add-team" || c.action == "remove-team" {
+			return a.repoTeam(ctx, c)
+		}
 		return a.crud(ctx, c)
 	case "config":
 		if c.action == "export" {
@@ -304,7 +334,7 @@ func (a *app) run(ctx context.Context, args []string, stdout, stderr io.Writer, 
 			ver = ver || arg == "--version"
 		}
 		if help {
-			data = map[string]any{"usage": usage, "commands": []string{"init", "repo-config add/list/show/update/remove", "workspace-config add/list/show/update/remove", "config export/import", "workspace plan/create/status", "skill install", "uninstall"}}
+			data = map[string]any{"usage": usage, "commands": []string{"init", "repo-config add/list/show/update/remove", "team-config add/list/show/update/remove", "workspace-config add/list/show/update/remove", "config export/import", "workspace plan/create/status", "skill install", "uninstall"}}
 		} else if ver && len(clean) == 1 {
 			data = map[string]string{"program": "workbox", "version": version}
 		} else {

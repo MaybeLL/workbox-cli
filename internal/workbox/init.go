@@ -214,7 +214,7 @@ func planInit(ctx context.Context, root string, old settingsRecord, o initOption
 		}
 		p.frozen = &s
 		p.frozenAt = time.Now().UTC().Format(time.RFC3339)
-		if len(s.Repos) == 0 && len(s.Workspaces) == 0 {
+		if len(s.Repos) == 0 && len(s.Workspaces) == 0 && len(s.Teams) == 0 {
 			p.copyState = "skipped"
 			p.copyReason = "source_empty"
 			if o.copy {
@@ -343,10 +343,10 @@ func (a *app) executeInit(ctx context.Context, p *initPlan, result map[string]an
 		count := 0
 		for _, kind := range []string{"added", "unchanged"} {
 			values := imported[kind].(map[string][]string)
-			counts := map[string]int{"repo_configs": len(values["repo_configs"]), "workspace_configs": len(values["workspace_configs"])}
+			counts := map[string]int{"repo_configs": len(values["repo_configs"]), "workspace_configs": len(values["workspace_configs"]), "team_configs": len(values["team_configs"])}
 			copyResult[kind] = counts
 			if kind == "added" {
-				count = counts["repo_configs"] + counts["workspace_configs"]
+				count = counts["repo_configs"] + counts["workspace_configs"] + counts["team_configs"]
 			}
 		}
 		copyResult["state"] = "copied"
@@ -467,7 +467,7 @@ func initSummary(w io.Writer, p *initPlan) {
 	if p.options.copy && p.copyState == "not_attempted" {
 		fmt.Fprintln(w, "  Copy from: "+storageLabel(p.source))
 		if p.frozen != nil {
-			fmt.Fprintf(w, "  Copy: %d repositories, %d workspaces (snapshot %s)\n", len(p.frozen.Repos), len(p.frozen.Workspaces), p.frozenAt)
+			fmt.Fprintf(w, "  Copy: %d repositories, %d workspaces, %d teams (snapshot %s)\n", len(p.frozen.Repos), len(p.frozen.Workspaces), len(p.frozen.Teams), p.frozenAt)
 		}
 		fmt.Fprintln(w, "  Git branches will be checked; source data is retained.")
 	} else {
