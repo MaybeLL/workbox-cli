@@ -2,3 +2,6 @@ bin/
 dist/
 /workbox
 .DS_Store
+
+# Private repository catalogs and local import helpers
+/local/

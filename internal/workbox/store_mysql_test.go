@@ -163,6 +163,7 @@ func TestMySQLBusinessAndCrossBackendTransfer(t *testing.T) {
 	if len(array(status["repos"])) != 1 || object(array(status["repos"])[0])["clean"] != true {
 		t.Fatal(status)
 	}
+	f.call(0, "repo-config", "update", "api", "--summary", "跨存储说明 🙂")
 	original := storeRead(t, s)
 	first := filepath.Join(f.root, "from-mysql.json")
 	f.call(0, "config", "export", "--output", first)

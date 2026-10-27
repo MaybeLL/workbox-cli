@@ -89,7 +89,7 @@ func TestStorageContract(t *testing.T) {
 				t.Fatal("new store is not empty")
 			}
 			next := empty.clone()
-			next.Repos["api"] = Repo{ID: "11111111-1111-4111-8111-111111111111", Name: "api", URL: "https://example.test/服务.git", Branch: "develop"}
+			next.Repos["api"] = Repo{ID: "11111111-1111-4111-8111-111111111111", Name: "api", URL: "https://example.test/服务.git", Branch: "develop", Summary: "服务说明 🙂"}
 			next.Workspaces["analysis"] = workspaceRow{ID: "22222222-2222-4222-8222-222222222222", Name: "analysis", Script: "#!/bin/sh\n# 你好 🙂\nprintf ready\n", Repos: []StoredRef{{ID: next.Repos["api"].ID, Target: "repos/服务", Ref: &BaselineRef{Type: "branch", Value: "release/v2"}}}}
 			storeCommit(t, s, empty, next)
 			actual := storeRead(t, s)

@@ -109,7 +109,7 @@ func mysqlTables(ctx context.Context, conn *sql.Conn) (map[string]bool, *Failure
 	return tables, nil
 }
 
-// -1 is an untouched database, 0 is resumable initialization, 1 is ready.
+// -1 is untouched, 0 is resumable initialization, 1 is legacy, 2 includes summaries.
 // Unknown tables, versions and nontransactional engines are never adopted.
 func mysqlSchemaState(ctx context.Context, conn *sql.Conn) (int, *Failure) {
 	tables, e := mysqlTables(ctx, conn)
@@ -129,10 +129,10 @@ func mysqlSchemaState(ctx context.Context, conn *sql.Conn) (int, *Failure) {
 		}
 		return 0, dbError(err)
 	}
-	if version != 0 && version != 1 {
+	if version != 0 && version != 1 && version != 2 {
 		return 0, fail("SCHEMA_UNSUPPORTED", "Unsupported MySQL schema version")
 	}
-	if version == 1 && len(tables) != 3 {
+	if version >= 1 && len(tables) != 3 {
 		// DDL may have finished after the first table listing but before the
 		// version read. Recheck after observing the published ready marker.
 		tables, e = mysqlTables(ctx, conn)
@@ -167,7 +167,7 @@ func (s *mysqlStore) schemaLock(ctx context.Context, conn *sql.Conn) (func(), *F
 
 func (s *mysqlStore) initialize(ctx context.Context, conn *sql.Conn) *Failure {
 	state, e := mysqlSchemaState(ctx, conn)
-	if e != nil || state == 1 {
+	if e != nil || state == 2 {
 		return e
 	}
 	release, e := s.schemaLock(ctx, conn)
@@ -176,11 +176,14 @@ func (s *mysqlStore) initialize(ctx context.Context, conn *sql.Conn) *Failure {
 	}
 	defer release()
 	state, e = mysqlSchemaState(ctx, conn)
-	if e != nil || state == 1 {
+	if e != nil || state == 2 {
 		return e
 	}
+	if state == 1 {
+		return migrateMySQLSummary(ctx, conn)
+	}
 	// MySQL DDL commits implicitly. Keep it outside the data transaction,
-	// serialize initialization, and publish schema version 1 only at the end.
+	// serialize initialization, then migrate the legacy schema to version 2.
 	statements := []string{
 		"CREATE TABLE IF NOT EXISTS workbox_schema (id TINYINT NOT NULL PRIMARY KEY, version INT NOT NULL) ENGINE=InnoDB",
 		"INSERT INTO workbox_schema (id,version) VALUES (1,0) ON DUPLICATE KEY UPDATE id=id",
@@ -193,7 +196,7 @@ func (s *mysqlStore) initialize(ctx context.Context, conn *sql.Conn) *Failure {
 			return dbError(err)
 		}
 	}
-	return nil
+	return migrateMySQLSummary(ctx, conn)
 }
 
 func (s *mysqlStore) snapshot(ctx context.Context) (snapshot, *Failure) {
@@ -242,10 +245,10 @@ func (s *mysqlStore) snapshot(ctx context.Context) (snapshot, *Failure) {
 	if err := tx.QueryRowContext(ctx, "SELECT version FROM workbox_schema WHERE id=1").Scan(&version); err != nil {
 		return snapshot{}, dbError(err)
 	}
-	if version != 1 {
+	if version != 1 && version != 2 {
 		return snapshot{}, fail("SCHEMA_UNSUPPORTED", "Unsupported MySQL schema version")
 	}
-	return readSnapshot(ctx, tx)
+	return readSnapshot(ctx, tx, version == 2)
 }
 
 func (s *mysqlStore) commit(ctx context.Context, expected, next snapshot) *Failure {
@@ -276,10 +279,10 @@ func (s *mysqlStore) commit(ctx context.Context, expected, next snapshot) *Failu
 	if err := tx.QueryRowContext(ctx, "SELECT version FROM workbox_schema WHERE id=1 FOR UPDATE").Scan(&version); err != nil {
 		return dbError(err)
 	}
-	if version != 1 {
+	if version != 2 {
 		return fail("SCHEMA_UNSUPPORTED", "Unsupported MySQL schema version")
 	}
-	current, e := readSnapshot(ctx, tx)
+	current, e := readSnapshot(ctx, tx, true)
 	if e != nil {
 		return e
 	}
@@ -291,6 +294,24 @@ func (s *mysqlStore) commit(ctx context.Context, expected, next snapshot) *Failu
 	}
 	if err := tx.Commit(); err != nil {
 		return commitFailure(err)
+	}
+	return nil
+}
+
+// DDL is serialized by schemaLock. A column added before an interrupted version
+// publication is detected on retry; readers of version 1 still see empty summaries.
+func migrateMySQLSummary(ctx context.Context, conn *sql.Conn) *Failure {
+	var count int
+	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='repo_config' AND COLUMN_NAME='summary'").Scan(&count); err != nil {
+		return dbError(err)
+	}
+	if count == 0 {
+		if _, err := conn.ExecContext(ctx, "ALTER TABLE repo_config ADD COLUMN summary LONGTEXT NOT NULL DEFAULT ('')"); err != nil {
+			return dbError(err)
+		}
+	}
+	if _, err := conn.ExecContext(ctx, "UPDATE workbox_schema SET version=2 WHERE id=1"); err != nil {
+		return dbError(err)
 	}
 	return nil
 }

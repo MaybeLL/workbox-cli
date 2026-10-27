@@ -29,10 +29,10 @@ const usage = `Usage: workbox COMMAND [--format text|json]
   init [--backend sqlite|mysql] [--mysql-dsn-file FILE]
        [--install-skill | --skip-skill] [--skill-path DIR]
        [--copy-config | --no-copy-config]
-  repo-config add NAME --url URL --default-branch BRANCH
+  repo-config add NAME --url URL --default-branch BRANCH [--summary TEXT]
   repo-config list
   repo-config show NAME
-  repo-config update NAME [--url URL] [--default-branch BRANCH]
+  repo-config update NAME [--url URL] [--default-branch BRANCH] [--summary TEXT]
   repo-config remove NAME
   workspace-config add NAME [--repos-file FILE] [--init-script-file FILE]
   workspace-config list
@@ -136,6 +136,7 @@ func parse(args []string) (command, *Failure) {
 			if c.entity == "repo-config" {
 				allowed["url"] = true
 				allowed["default-branch"] = true
+				allowed["summary"] = true
 				if c.action == "add" {
 					required = []string{"url", "default-branch"}
 				}

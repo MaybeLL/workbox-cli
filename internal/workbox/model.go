@@ -31,10 +31,11 @@ func (f *Failure) ExitCode() int {
 func ioFailure(message string) *Failure { return fail("IO_ERROR", message) }
 
 type Repo struct {
-	ID     string `json:"id,omitempty"`
-	Name   string `json:"name"`
-	URL    string `json:"source_url"`
-	Branch string `json:"default_branch"`
+	ID      string `json:"id,omitempty"`
+	Name    string `json:"name"`
+	URL     string `json:"source_url"`
+	Branch  string `json:"default_branch"`
+	Summary string `json:"summary"`
 }
 type BaselineRef struct {
 	Type  string `json:"type"`

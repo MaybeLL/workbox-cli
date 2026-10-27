@@ -11,15 +11,23 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-func readSnapshot(ctx context.Context, tx *sql.Tx) (snapshot, *Failure) {
+func readSnapshot(ctx context.Context, tx *sql.Tx, summary bool) (snapshot, *Failure) {
 	s := emptySnapshot()
-	rows, err := tx.QueryContext(ctx, "SELECT id,name,source_url,default_branch FROM repo_config ORDER BY name")
+	columns := "id,name,source_url,default_branch"
+	if summary {
+		columns += ",summary"
+	}
+	rows, err := tx.QueryContext(ctx, "SELECT "+columns+" FROM repo_config ORDER BY name")
 	if err != nil {
 		return s, dbError(err)
 	}
 	for rows.Next() {
 		var r Repo
-		if err := rows.Scan(&r.ID, &r.Name, &r.URL, &r.Branch); err != nil {
+		dest := []any{&r.ID, &r.Name, &r.URL, &r.Branch}
+		if summary {
+			dest = append(dest, &r.Summary)
+		}
+		if err := rows.Scan(dest...); err != nil {
 			rows.Close()
 			return s, dbError(err)
 		}
@@ -52,7 +60,7 @@ func readSnapshot(ctx context.Context, tx *sql.Tx) (snapshot, *Failure) {
 	return s, nil
 }
 func insertRepo(ctx context.Context, tx *sql.Tx, r Repo) *Failure {
-	_, err := tx.ExecContext(ctx, "INSERT INTO repo_config (id,name,source_url,default_branch) VALUES (?,?,?,?)", r.ID, r.Name, r.URL, r.Branch)
+	_, err := tx.ExecContext(ctx, "INSERT INTO repo_config (id,name,source_url,default_branch,summary) VALUES (?,?,?,?,?)", r.ID, r.Name, r.URL, r.Branch, r.Summary)
 	if err != nil {
 		return dbError(err)
 	}

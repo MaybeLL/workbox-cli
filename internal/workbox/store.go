@@ -85,7 +85,7 @@ func sqliteSchema(ctx context.Context, tx *sql.Tx) (bool, *Failure) {
 	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return false, dbError(err)
 	}
-	if version == 1 {
+	if version == 1 || version == 2 {
 		return true, nil
 	}
 	if version == 0 {
@@ -124,7 +124,11 @@ func (s *sqliteStore) snapshot(ctx context.Context) (snapshot, *Failure) {
 	if !ready {
 		return emptySnapshot(), nil
 	}
-	return readSnapshot(ctx, tx)
+	var version int
+	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return snapshot{}, dbError(err)
+	}
+	return readSnapshot(ctx, tx, version == 2)
 }
 func (s *sqliteStore) commit(ctx context.Context, expected, next snapshot) *Failure {
 	_, err := pathExists(s.path)
@@ -154,7 +158,19 @@ func (s *sqliteStore) commit(ctx context.Context, expected, next snapshot) *Fail
 			}
 		}
 	}
-	current, e := readSnapshot(ctx, tx)
+	var version int
+	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return dbError(err)
+	}
+	if version == 1 {
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE repo_config ADD COLUMN summary TEXT NOT NULL DEFAULT ''"); err != nil {
+			return dbError(err)
+		}
+		if _, err := tx.ExecContext(ctx, "PRAGMA user_version=2"); err != nil {
+			return dbError(err)
+		}
+	}
+	current, e := readSnapshot(ctx, tx, true)
 	if e != nil {
 		return e
 	}

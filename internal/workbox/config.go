@@ -100,6 +100,9 @@ func (a *app) crud(ctx context.Context, c command) (any, *Failure) {
 		if value, ok := c.flags["default-branch"]; ok {
 			r.Branch = value
 		}
+		if value, ok := c.flags["summary"]; ok {
+			r.Summary = value
+		}
 		if e := a.validateRepo(ctx, r); e != nil {
 			return nil, e
 		}

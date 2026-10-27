@@ -139,10 +139,10 @@ All commands, including help and version, accept `--format json` anywhere in the
 workbox init [--backend sqlite|mysql] [--mysql-dsn-file FILE]
              [--install-skill | --skip-skill] [--skill-path DIR]
              [--copy-config | --no-copy-config]
-workbox repo-config add NAME --url URL --default-branch BRANCH
+workbox repo-config add NAME --url URL --default-branch BRANCH [--summary TEXT]
 workbox repo-config list
 workbox repo-config show NAME
-workbox repo-config update NAME [--url URL] [--default-branch BRANCH]
+workbox repo-config update NAME [--url URL] [--default-branch BRANCH] [--summary TEXT]
 workbox repo-config remove NAME
 
 workbox workspace-config add NAME [--repos-file FILE] [--init-script-file FILE]
@@ -235,3 +235,20 @@ Tests isolate all configuration state and Git configuration in temporary directo
 `make release VERSION=0.2.0` cross-compiles the four targets, creates archives and SHA-256 checksums, and generates a source formula pinned to the release's Git revision. The release workflow builds native macOS Homebrew bottles and adds their checksums before publishing. The output directory must not already exist; build failures preserve partial artifacts. Run `sh scripts/check-install.sh workbox` to check an installed executable with temporary configuration and workspace directories. See [distribution and release instructions](docs/distribution.md).
 
 Version 0.2 intentionally excludes script execution, worktree create/delete commands, baseline synchronization, branch overrides, automatic schema migrations, import overwrite, background jobs and persistent workspace state.
+
+## Repository summaries and private catalogs
+
+Repo configurations include optional `summary` text (empty by default). Set it
+with `repo-config add/update ... --summary "Service responsibilities"`; pass
+`--summary ""` to clear it. Show/list, exports, backend transfers and workspace
+plans include the text. A workspace reads the shared Repo summary rather than
+storing another copy. Summaries are maintained navigation hints, not verified
+code or deployment evidence. Older import packages may omit the field.
+
+The project ignores `/local/` for private catalogs and helper scripts. Release
+packaging includes only explicit public files and directories, not this directory.
+Internal repository addresses, descriptions and credentials must not be committed
+or bundled. A private helper can use `config import` with a repository-only
+package (`workspace_configs: []`): identical entries are unchanged and conflicting
+entries abort the import without overwriting local edits. No presets are installed
+automatically.

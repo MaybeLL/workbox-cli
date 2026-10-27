@@ -50,6 +50,9 @@ func validateURL(value string) *Failure {
 	return bad
 }
 func (a *app) validateRepo(ctx context.Context, r Repo) *Failure {
+	if !utf8.ValidString(r.Summary) || strings.ContainsRune(r.Summary, 0) {
+		return invalid("summary must be UTF-8 text without NUL")
+	}
 	if e := validateName(r.Name); e != nil {
 		return e
 	}
@@ -296,7 +299,13 @@ func (a *app) parsePackage(ctx context.Context, raw []byte) (Package, *Failure) 
 	available := map[string]bool{}
 	for _, row := range rows {
 		var r Repo
-		if e := exact(row, &r, "name", "source_url", "default_branch"); e != nil {
+		keys := []string{"name", "source_url", "default_branch"}
+		var fields map[string]json.RawMessage
+		_ = json.Unmarshal(row, &fields)
+		if _, ok := fields["summary"]; ok {
+			keys = append(keys, "summary")
+		}
+		if e := exact(row, &r, keys...); e != nil {
 			return p, e
 		}
 		if e := a.validateRepo(ctx, r); e != nil {

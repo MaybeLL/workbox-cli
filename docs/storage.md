@@ -36,7 +36,7 @@ workbox workspace-config list
 
 The adapter enforces UTF-8 (`utf8mb4`), autocommit for schema setup, and explicit repeatable-read transactions for configuration operations. Multi-statements and client-side interpolation are disabled. Connection establishment defaults to five seconds, reads/writes to thirty seconds; each store operation has a thirty-second context limit. Failures return sanitized Workbox errors, without raw server diagnostics or DSNs. MySQL failures never silently fall back to SQLite.
 
-Initialization prepares `repo_config`, `workspace_config` and the metadata table `workbox_schema`. Lists/exports against an empty existing database return empty results without creating tables. Unknown versions, unrelated tables or non-InnoDB engines are rejected. Because MySQL DDL commits implicitly, setup uses a named database-specific lock and publishes metadata version 1 last. An interrupted, recognized version-zero setup remains logically empty; the next valid write completes it. Configuration data changes then run in a separate atomic transaction.
+Initialization prepares `repo_config`, `workspace_config` and the metadata table `workbox_schema`. Lists/exports against an empty existing database return empty results without creating tables. Unknown versions, unrelated tables or non-InnoDB engines are rejected. Because MySQL DDL commits implicitly, setup uses a named database-specific lock and publishes metadata version 2 after preparing the summary column. An interrupted, recognized version-zero setup remains logically empty; the next valid write completes it. Configuration data changes then run in a separate atomic transaction.
 
 Status, help, version, skill installation and uninstall do not connect to the configuration backend. Uninstall preserves the database, its data and any connection file. Back up and administer a shared MySQL database through your normal database operations. Both backends use the configuration root for `settings.json`; MySQL does not use its `config.db`. See [initialization and recovery](initialization.md).
 
@@ -67,3 +67,15 @@ type configStore interface {
 SQLite uses an immediate write transaction; MySQL locks its metadata row before its first consistent data read. Both then compare snapshots and apply changed rows. These locks coordinate Workbox writers; external SQL mutations bypass the adapter contract. SQL helpers are private to the relational adapters, and neither SQL statements, connections, transactions nor driver settings reach business code. The snapshot design fits small configuration catalogs; it is not intended for high-volume operational data.
 
 To add another backend, implement this interface, register selection in the settings/init composition, and add the adapter to the shared storage contract tests. Implement that backend's schema lifecycle, consistency, atomicity and sanitized errors inside the adapter. Business commands and the portable configuration format should not need to change. PostgreSQL and other databases are extension possibilities, not currently supported implementations.
+
+## Summary schema migration
+
+Database schema 2 adds `repo_config.summary` with an empty default. Reads of schema
+1 return empty summaries without modifying the database. The next valid write
+migrates SQLite transactionally. MySQL serializes its DDL with the existing schema
+lock, detects a summary column left by interrupted migration, and publishes schema
+2 afterwards. Existing IDs and workspace references are preserved. Older binaries
+reject schema 2 instead of silently discarding summaries; upgrade every client
+sharing the database before writing. Portable JSON packages remain version 1 and
+accept omitted summary fields as empty strings; old tools may reject packages
+containing summary fields.

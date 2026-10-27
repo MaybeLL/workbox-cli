@@ -44,6 +44,7 @@ flowchart TD
 | | `name` | 唯一名称 |
 | | `source_url` | Git 远程来源 |
 | | `default_branch` | 必须明确指定的分支 |
+| | `summary` | 可选职责摘要，默认空字符串，供导航使用 |
 | `workspace_config` | `id` | 主键 UUID |
 | | `name` | 唯一名称 |
 | | `repos` | 有序 JSON 数组，元素为 `repo_config_id`、`target_dir` |
@@ -59,6 +60,7 @@ erDiagram
         string name UK
         string source_url
         string default_branch
+        string summary
     }
     WORKSPACE_CONFIG {
         string id PK
@@ -100,7 +102,7 @@ SQLite 使用 immediate 写事务。MySQL 在第一次一致性数据读取前�
 
 空存储只读不会建表；缺失查询不会初始化数据库。`init` 通过 `commit(s,s)` 显式准备 schema，不插入虚假业务记录。初始化成功不证明账号具备所有未来写操作需要的权限。
 
-MySQL DDL 会隐式提交，因此 schema 准备独立于业务事务：获取数据库级命名锁，建立已知表，最后发布版本 1。可识别的中断版本零状态允许后续有效写入补全。未知版本、无关表或不支持的引擎被拒绝，不自动迁移。提交前失败回滚业务批次；提交确认丢失则返回 `COMMIT_OUTCOME_UNKNOWN`，数据可能已提交，调用者必须重新读取，不能假定回滚。
+MySQL DDL 会隐式提交，因此 schema 准备独立于业务事务：获取数据库级命名锁，建立已知表，最后发布数据库版本 2。可识别的中断版本零状态允许后续有效写入补全。未知版本、无关表或不支持的引擎被拒绝，仅支持已知版本 1 到 2 的 summary 字段迁移。提交前失败回滚业务批次；提交确认丢失则返回 `COMMIT_OUTCOME_UNKNOWN`，数据可能已提交，调用者必须重新读取，不能假定回滚。
 
 SQLite 使用本地纯 Go 引擎。MySQL 使用用户已创建的专用数据库，需要业务读写、建表权限以及命名锁能力；CLI 不创建数据库。当前 CI 验证 MySQL 8.4，MariaDB 未验证。连接与 SQL 错误经过脱敏，不静默回退 SQLite。具体连接参数见[存储指南](storage.md)。
 
@@ -343,3 +345,12 @@ branch 必须为明确分支名；commit 必须为完整小写十六进制 SHA�
 分支预检查询精确 refs/heads 名称；commit 预检 fetch 指定 SHA 并验证它本身是 commit，
 不使用 tag 剥离后的 commit 替代输入，不回退到默认分支。远端拒绝 SHA fetch 时失败。
 配置变更只影响未来 create，不修改已有 workspace 的检出。
+
+### Repo summary 与内部目录
+
+Repo 配置新增可选 `summary`，支持 add/update 的 `--summary`，空字符串清除。
+查询、Workspace plan、导入导出及存储后端复制保留该字段；Workspace 不重复存储。
+旧导入包缺省字段等同空字符串，显式 null 或非字符串拒绝；同名 summary 不同仍属导入冲突。
+数据库版本 1 的读取保持只读并返回空摘要；首次有效写入迁移至版本 2，保留 ID 和引用。
+摘要仅作人工维护的导航说明，不是代码事实。开源发行不内置业务仓库清单；
+`/local/` 被 Git 忽略且不纳入发布归档，用于私有清单和基于公开 CLI 的本地导入脚本。
