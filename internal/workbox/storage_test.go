@@ -90,13 +90,19 @@ func TestStorageContract(t *testing.T) {
 			}
 			next := empty.clone()
 			next.Repos["api"] = Repo{ID: "11111111-1111-4111-8111-111111111111", Name: "api", URL: "https://example.test/服务.git", Branch: "develop"}
-			next.Workspaces["analysis"] = workspaceRow{ID: "22222222-2222-4222-8222-222222222222", Name: "analysis", Script: "#!/bin/sh\n# 你好 🙂\nprintf ready\n", Repos: []StoredRef{{ID: next.Repos["api"].ID, Target: "repos/服务"}}}
+			next.Workspaces["analysis"] = workspaceRow{ID: "22222222-2222-4222-8222-222222222222", Name: "analysis", Script: "#!/bin/sh\n# 你好 🙂\nprintf ready\n", Repos: []StoredRef{{ID: next.Repos["api"].ID, Target: "repos/服务", Ref: &BaselineRef{Type: "branch", Value: "release/v2"}}}}
 			storeCommit(t, s, empty, next)
 			actual := storeRead(t, s)
 			if !sameSnapshot(actual, next) {
 				t.Fatal("stored IDs, UTF-8 or references changed")
 			}
 			actual.Workspaces["analysis"].Repos[0].Target = "changed-locally"
+			actual.Workspaces["analysis"].Repos[0].Ref.Value = "changed-locally"
+			cloned := next.clone()
+			cloned.Workspaces["analysis"].Repos[0].Ref.Value = "changed-clone"
+			if next.Workspaces["analysis"].Repos[0].Ref.Value != "release/v2" {
+				t.Fatal("clone aliases ref")
+			}
 			if !sameSnapshot(storeRead(t, s), next) {
 				t.Fatal("returned snapshot aliases stored data")
 			}

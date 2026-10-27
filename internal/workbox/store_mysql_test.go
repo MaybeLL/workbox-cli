@@ -148,7 +148,7 @@ func TestMySQLBusinessAndCrossBackendTransfer(t *testing.T) {
 	f.app.store = s
 	f.repo("api")
 	script := "#!/bin/sh\n# " + strings.Repeat("配置🙂", 12000) + "\n"
-	f.workspace([]Ref{{"api", "repos/服务"}}, script)
+	f.workspace([]Ref{{Repo: "api", Target: "repos/服务"}}, script)
 	if errorCode(f.call(2, "repo-config", "remove", "api")) != "CONFIG_CONFLICT" {
 		t.Fatal("reference protection failed")
 	}

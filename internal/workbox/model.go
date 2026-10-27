@@ -36,13 +36,20 @@ type Repo struct {
 	URL    string `json:"source_url"`
 	Branch string `json:"default_branch"`
 }
+type BaselineRef struct {
+	Type  string `json:"type"`
+	Value string `json:"value"`
+}
+
 type Ref struct {
-	Repo   string `json:"repo"`
-	Target string `json:"target_dir"`
+	Repo   string       `json:"repo"`
+	Target string       `json:"target_dir"`
+	Ref    *BaselineRef `json:"ref,omitempty"`
 }
 type StoredRef struct {
-	ID     string `json:"repo_config_id"`
-	Target string `json:"target_dir"`
+	ID     string       `json:"repo_config_id"`
+	Target string       `json:"target_dir"`
+	Ref    *BaselineRef `json:"ref,omitempty"`
 }
 type Workspace struct {
 	ID     string `json:"id,omitempty"`
@@ -86,7 +93,7 @@ func (s snapshot) public(row workspaceRow) (Workspace, *Failure) {
 		if !ok {
 			return w, fail("CONFIG_INVALID", "Workspace has invalid repository references")
 		}
-		w.Repos = append(w.Repos, Ref{name, ref.Target})
+		w.Repos = append(w.Repos, Ref{Repo: name, Target: ref.Target, Ref: cloneRef(ref.Ref)})
 	}
 	return w, nil
 }
@@ -114,7 +121,7 @@ func (s snapshot) internal(refs []Ref) ([]StoredRef, *Failure) {
 		if !ok {
 			return nil, missing("repo_config", ref.Repo)
 		}
-		result = append(result, StoredRef{r.ID, ref.Target})
+		result = append(result, StoredRef{ID: r.ID, Target: ref.Target, Ref: cloneRef(ref.Ref)})
 	}
 	return result, nil
 }
@@ -136,4 +143,12 @@ func jsonEqual(a, b any) bool {
 	x, _ := json.Marshal(a)
 	y, _ := json.Marshal(b)
 	return string(x) == string(y)
+}
+
+func cloneRef(ref *BaselineRef) *BaselineRef {
+	if ref == nil {
+		return nil
+	}
+	v := *ref
+	return &v
 }

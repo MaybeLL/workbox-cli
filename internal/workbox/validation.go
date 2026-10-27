@@ -73,6 +73,9 @@ func validateRefs(refs []Ref) *Failure {
 	targets := []string{}
 	fold := cases.Fold()
 	for _, ref := range refs {
+		if e := validateBaselineRef(ref.Ref); e != nil {
+			return e
+		}
 		if e := validateName(ref.Repo); e != nil {
 			return e
 		}
@@ -247,7 +250,19 @@ func parseRefs(raw []byte) ([]Ref, *Failure) {
 	refs := []Ref{}
 	for _, item := range items {
 		var ref Ref
-		if e := exact(item, &ref, "repo", "target_dir"); e != nil {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(item, &fields) != nil {
+			return nil, invalid("Invalid repository reference")
+		}
+		keys := []string{"repo", "target_dir"}
+		if rawRef, ok := fields["ref"]; ok {
+			keys = append(keys, "ref")
+			var baseline BaselineRef
+			if e := exact(rawRef, &baseline, "type", "value"); e != nil {
+				return nil, e
+			}
+		}
+		if e := exact(item, &ref, keys...); e != nil {
 			return nil, e
 		}
 		refs = append(refs, ref)
@@ -325,4 +340,30 @@ func (a *app) parsePackage(ctx context.Context, raw []byte) (Package, *Failure) 
 		p.Workspaces = append(p.Workspaces, w)
 	}
 	return p, nil
+}
+
+// Validate without consulting the current directory or expanding revision expressions.
+func validateBaselineRef(ref *BaselineRef) *Failure {
+	if ref == nil {
+		return nil
+	}
+	switch ref.Type {
+	case "commit":
+		if !regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`).MatchString(ref.Value) {
+			return invalid("commit ref requires a full lowercase hexadecimal SHA")
+		}
+	case "branch":
+		v := ref.Value
+		if v == "" || v == "HEAD" || strings.HasPrefix(v, "-") || strings.ContainsAny(v, " ~^:?*[\\") || strings.Contains(v, "..") || strings.Contains(v, "@{") || strings.HasSuffix(v, ".") || strings.ContainsFunc(v, unicode.IsControl) {
+			return invalid("Invalid branch ref")
+		}
+		for _, part := range strings.Split(v, "/") {
+			if part == "" || strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
+				return invalid("Invalid branch ref")
+			}
+		}
+	default:
+		return invalid("ref type must be branch or commit")
+	}
+	return nil
 }

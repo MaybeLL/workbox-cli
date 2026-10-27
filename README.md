@@ -98,7 +98,38 @@ analysis-one/
     └── worktree/              development worktrees are direct children
 ```
 
-Clone is full-history, single-branch, without recursive submodules. `plan` checks paths and remotes without creating anything. `create` independently rechecks using a new snapshot; a previous plan is not a lock. Empty workspace configurations are allowed and still create `.workbox/worktree/`.
+Clone is full-history, single-branch, without recursive submodules. `plan` checks paths and remotes without creating the destination; commit checks use a temporary repository that is removed afterwards. `create` independently rechecks using a new snapshot; a previous plan is not a lock. Empty workspace configurations are allowed and still create `.workbox/worktree/`.
+
+## Per-workspace baseline overrides
+
+Each repository selection may include an optional `ref`. Omit it to inherit the
+Repo configuration's `default_branch`, or select an existing branch or a full
+lowercase commit SHA (40 hex characters for SHA-1, 64 for SHA-256):
+
+```json
+[
+  {"repo": "api", "target_dir": "repos/api", "ref": {"type": "branch", "value": "release/v2"}},
+  {"repo": "worker", "target_dir": "repos/worker", "ref": {"type": "commit", "value": "0123456789abcdef0123456789abcdef01234567"}}
+]
+```
+
+Save this array with `workspace-config add/update NAME --repos-file FILE`.
+This only changes that workspace configuration; shared Repo defaults and existing
+checkouts remain unchanged. Updating the array with `ref` omitted restores
+inheritance. Explicit null, tags, short SHAs, revision expressions and unknown
+fields are rejected. The same fields survive show/list, export/import and storage
+backend copies; existing configurations need no migration. Older Workbox versions
+do not support these overrides and must not be used to edit the same database.
+
+Plan and create report the effective `ref` and `resolved_commit`, alongside the
+Repo's `default_branch`. Create resolves branches again and checks out its captured
+SHA even if the branch advances during clone. A force-push that makes that SHA
+unavailable causes failure, never fallback. Branch baselines retain the selected
+branch name; commit baselines are detached (`branch: null`) and fetch full history
+reachable from that commit, without recursive submodules. The remote must permit
+fetching the specified SHA; an inaccessible or non-commit object fails verification
+before the workspace directory is created. Plan does not freeze a later create:
+use a commit ref to pin a baseline across invocations.
 
 ## Commands
 

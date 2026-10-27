@@ -11,21 +11,25 @@ import (
 )
 
 type preparedRepo struct {
-	Name          string   `json:"name"`
-	Path          *string  `json:"path"`
-	DefaultBranch string   `json:"default_branch"`
-	State         string   `json:"state"`
-	Branch        *string  `json:"branch"`
-	Commit        *string  `json:"commit"`
-	Error         *Failure `json:"error"`
+	Ref            BaselineRef `json:"ref"`
+	ResolvedCommit *string     `json:"resolved_commit"`
+	Name           string      `json:"name"`
+	Path           *string     `json:"path"`
+	DefaultBranch  string      `json:"default_branch"`
+	State          string      `json:"state"`
+	Branch         *string     `json:"branch"`
+	Commit         *string     `json:"commit"`
+	Error          *Failure    `json:"error"`
 }
 type plannedRepo struct {
-	Name          string         `json:"name"`
-	URL           string         `json:"source_url"`
-	DefaultBranch string         `json:"default_branch"`
-	Target        string         `json:"target_dir"`
-	Path          *string        `json:"path"`
-	Checks        map[string]any `json:"checks"`
+	Ref            BaselineRef    `json:"ref"`
+	ResolvedCommit *string        `json:"resolved_commit"`
+	Name           string         `json:"name"`
+	URL            string         `json:"source_url"`
+	DefaultBranch  string         `json:"default_branch"`
+	Target         string         `json:"target_dir"`
+	Path           *string        `json:"path"`
+	Checks         map[string]any `json:"checks"`
 }
 
 func pointer[T any](value T) *T { return &value }
@@ -197,9 +201,9 @@ func (a *app) prepare(ctx context.Context, name, raw string, create bool) (data 
 			return nil, e
 		}
 		if create {
-			prepared = append(prepared, &preparedRepo{Name: repo.Name, DefaultBranch: repo.Branch, State: "not_attempted"})
+			prepared = append(prepared, &preparedRepo{Ref: effectiveRef(repo, ref.Ref), Name: repo.Name, DefaultBranch: repo.Branch, State: "not_attempted"})
 		} else {
-			plans = append(plans, &plannedRepo{Name: repo.Name, URL: repo.URL, DefaultBranch: repo.Branch, Target: ref.Target, Checks: map[string]any{"ok": nil}})
+			plans = append(plans, &plannedRepo{Ref: effectiveRef(repo, ref.Ref), Name: repo.Name, URL: repo.URL, DefaultBranch: repo.Branch, Target: ref.Target, Checks: map[string]any{"ok": nil}})
 		}
 	}
 	if create {
@@ -221,9 +225,12 @@ func (a *app) prepare(ctx context.Context, name, raw string, create bool) (data 
 			plans[i].Path = &path
 		}
 	}
+	resolved := make([]string, len(w.Repos))
 	stage = "remote_preflight"
 	for i, ref := range w.Repos {
-		if e := a.verifyRemote(ctx, s.Repos[ref.Repo]); e != nil {
+		repo := s.Repos[ref.Repo]
+		commit, e := a.resolveBaseline(ctx, repo, effectiveRef(repo, ref.Ref))
+		if e != nil {
 			if !create {
 				plans[i].Checks = map[string]any{"ok": false, "error": e}
 			}
@@ -231,6 +238,11 @@ func (a *app) prepare(ctx context.Context, name, raw string, create bool) (data 
 		}
 		if !create {
 			plans[i].Checks = map[string]any{"ok": true}
+			plans[i].ResolvedCommit = pointer(commit)
+		}
+		resolved[i] = commit
+		if create {
+			prepared[i].ResolvedCommit = pointer(commit)
 		}
 	}
 	if !create {
@@ -268,8 +280,28 @@ func (a *app) prepare(ctx context.Context, name, raw string, create bool) (data 
 		if exists {
 			return nil, fail("TARGET_EXISTS", "Repository target appeared before clone")
 		}
-		if _, _, e := a.gitRunner.run(ctx, "", 1800*time.Second, false, []int{0}, "clone", "--single-branch", "--branch", repo.Branch, "--", repo.URL, *active.Path); e != nil {
-			return nil, e
+		selected := effectiveRef(repo, ref.Ref)
+		if selected.Type == "commit" {
+			if e := tree.mkdir(filepath.FromSlash(ref.Target)); e != nil {
+				return nil, e
+			}
+			if e := a.fetchCommit(ctx, *active.Path, repo.URL, resolved[i]); e != nil {
+				return nil, e
+			}
+			if _, e := a.git(ctx, *active.Path, "checkout", "--detach", resolved[i]); e != nil {
+				return nil, e
+			}
+		} else {
+			if _, _, e := a.gitRunner.run(ctx, "", 1800*time.Second, false, []int{0}, "clone", "--single-branch", "--branch", selected.Value, "--", repo.URL, *active.Path); e != nil {
+				return nil, e
+			}
+			if e := tree.check(); e != nil {
+				return nil, e
+			}
+			// A branch can advance between preflight and clone; keep the captured baseline.
+			if _, e := a.git(ctx, *active.Path, "checkout", "-B", selected.Value, resolved[i]); e != nil {
+				return nil, e
+			}
 		}
 		if e := tree.check(); e != nil {
 			return nil, e
@@ -279,18 +311,23 @@ func (a *app) prepare(ctx context.Context, name, raw string, create bool) (data 
 			return nil, fail("PATH_INVALID", "Repository target is not a real directory")
 		}
 		tree.owned[filepath.FromSlash(ref.Target)] = info
-		branch, e := a.git(ctx, *active.Path, "symbolic-ref", "--short", "HEAD")
-		if e != nil {
-			return nil, e
+		if selected.Type == "branch" {
+			branch, e := a.git(ctx, *active.Path, "symbolic-ref", "--short", "HEAD")
+			if e != nil {
+				return nil, e
+			}
+			if branch != selected.Value {
+				return nil, fail("GIT_ERROR", "Unexpected checkout branch")
+			}
+			active.Branch = &branch
 		}
-		active.Branch = &branch
 		commit, e := a.git(ctx, *active.Path, "rev-parse", "--verify", "HEAD")
 		if e != nil {
 			return nil, e
 		}
 		active.Commit = &commit
-		if branch != repo.Branch {
-			return nil, fail("GIT_ERROR", "Clone checked out an unexpected branch")
+		if commit != resolved[i] {
+			return nil, fail("GIT_ERROR", "Checkout does not match the resolved commit")
 		}
 		active.State = "completed"
 		active = nil

@@ -136,7 +136,7 @@ func (f *fixture) workspace(refs []Ref, script string) map[string]any {
 }
 func (f *fixture) create() string {
 	f.repo("api")
-	f.workspace([]Ref{{"api", "repos/api"}}, "")
+	f.workspace([]Ref{{Repo: "api", Target: "repos/api"}}, "")
 	root := filepath.Join(f.root, "workspace")
 	f.call(0, "workspace", "create", "--config", "analysis", "--path", root)
 	return root
@@ -158,7 +158,7 @@ func TestEndToEnd(t *testing.T) {
 	f := setup(t)
 	r := f.repo("api")
 	script := "#!/bin/sh\nprintf '%s\\n' ready > READY.txt\n"
-	w := f.workspace([]Ref{{"api", "repos/api"}}, script)
+	w := f.workspace([]Ref{{Repo: "api", Target: "repos/api"}}, script)
 	target := filepath.Join(f.root, "workspace")
 	plan := object(f.call(0, "workspace", "plan", "--config", "analysis", "--path", target)["data"])
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
@@ -318,11 +318,11 @@ func TestURLAndPathRules(t *testing.T) {
 		}
 	}
 	for _, path := range []string{"", "/abs", "../x", "a/../b", "a/./b", "a//b", "a/", "a\\b", "C:/x", "a/.GIT/x", ".WORKBOX/x"} {
-		if validateRefs([]Ref{{"a", path}}) == nil {
+		if validateRefs([]Ref{{Repo: "a", Target: path}}) == nil {
 			t.Errorf("invalid path accepted: %q", path)
 		}
 	}
-	for _, refs := range [][]Ref{{{"a", "repos/a"}, {"b", "repos/a/x"}}, {{"a", "repos/A"}, {"b", "repos/a"}}, {{"a", "repos/Straße"}, {"b", "repos/STRASSE"}}, {{"a", "a"}, {"a", "b"}}} {
+	for _, refs := range [][]Ref{{{Repo: "a", Target: "repos/a"}, {Repo: "b", Target: "repos/a/x"}}, {{Repo: "a", Target: "repos/A"}, {Repo: "b", Target: "repos/a"}}, {{Repo: "a", Target: "repos/Straße"}, {Repo: "b", Target: "repos/STRASSE"}}, {{Repo: "a", Target: "a"}, {Repo: "a", Target: "b"}}} {
 		if validateRefs(refs) == nil {
 			t.Errorf("overlap or duplicate accepted: %v", refs)
 		}
@@ -331,7 +331,7 @@ func TestURLAndPathRules(t *testing.T) {
 func TestConfigUpdatesAndReferences(t *testing.T) {
 	f := setup(t)
 	original := f.repo("api")
-	f.workspace([]Ref{{"api", "repos/api"}}, "#!/bin/sh\necho old\n")
+	f.workspace([]Ref{{Repo: "api", Target: "repos/api"}}, "#!/bin/sh\necho old\n")
 	result := f.call(2, "repo-config", "remove", "api")
 	if errorCode(result) != "CONFIG_CONFLICT" || len(array(object(result["error"])["details"].(map[string]any)["workspace_configs"])) != 1 {
 		t.Fatal(result)
@@ -437,7 +437,7 @@ func TestOptimisticUpdateAndImport(t *testing.T) {
 func TestSnapshotChangesDuringClone(t *testing.T) {
 	f := setup(t)
 	f.repo("api")
-	f.workspace([]Ref{{"api", "repos/api"}}, "#!/bin/sh\necho old\n")
+	f.workspace([]Ref{{Repo: "api", Target: "repos/api"}}, "#!/bin/sh\necho old\n")
 	target := filepath.Join(f.root, "new")
 	f.call(0, "workspace", "plan", "--config", "analysis", "--path", target)
 	f.call(0, "workspace-config", "update", "analysis", "--init-script-file", f.file("new.sh", "#!/bin/sh\necho snapshot\n"))
@@ -470,7 +470,7 @@ func TestPartialCloneFailureAndCancellation(t *testing.T) {
 			for _, name := range []string{"api", "worker", "third"} {
 				f.repo(name)
 			}
-			f.workspace([]Ref{{"api", "repos/api"}, {"worker", "repos/worker"}, {"third", "repos/third"}}, "")
+			f.workspace([]Ref{{Repo: "api", Target: "repos/api"}, {Repo: "worker", Target: "repos/worker"}, {Repo: "third", Target: "repos/third"}}, "")
 			f.app.gitRunner = hookedGit{gitCLI{}, func(args []string) *Failure {
 				if args[0] == "clone" && strings.Contains(strings.Join(args, " "), "worker.git") {
 					return fail(code, "Injected failure")
@@ -524,7 +524,7 @@ func TestDirectoryRaces(t *testing.T) {
 func TestImportValidationAndAtomicity(t *testing.T) {
 	f := setup(t)
 	f.repo("api")
-	f.workspace([]Ref{{"api", "repos/api"}}, "")
+	f.workspace([]Ref{{Repo: "api", Target: "repos/api"}}, "")
 	before, e := f.app.store.snapshot(context.Background())
 	if e != nil {
 		t.Fatal(e)
@@ -672,7 +672,7 @@ func TestConcurrentExportPublishesOneCompleteFile(t *testing.T) {
 func TestRootAppearingAfterPreflight(t *testing.T) {
 	f := setup(t)
 	f.repo("api")
-	f.workspace([]Ref{{"api", "repos/api"}}, "")
+	f.workspace([]Ref{{Repo: "api", Target: "repos/api"}}, "")
 	target := filepath.Join(f.root, "racing")
 	f.app.gitRunner = hookedGit{gitCLI{}, func(args []string) *Failure {
 		if args[0] == "ls-remote" {
@@ -695,7 +695,7 @@ func TestRootAppearingAfterPreflight(t *testing.T) {
 func TestParentLinkedAfterPreflightDoesNotEscape(t *testing.T) {
 	f := setup(t)
 	f.repo("api")
-	f.workspace([]Ref{{"api", "repos/api"}}, "")
+	f.workspace([]Ref{{Repo: "api", Target: "repos/api"}}, "")
 	parent := filepath.Join(f.root, "parent")
 	outside := filepath.Join(f.root, "outside")
 	if err := os.Mkdir(parent, 0755); err != nil {
@@ -749,7 +749,7 @@ func TestJSONUnicodeAndNullContracts(t *testing.T) {
 func TestWhitespacePathsRemainExact(t *testing.T) {
 	f := setup(t)
 	f.repo("api")
-	f.workspace([]Ref{{"api", "repos/api "}}, "")
+	f.workspace([]Ref{{Repo: "api", Target: "repos/api "}}, "")
 	root := filepath.Join(f.root, "workspace ")
 	f.call(0, "workspace", "create", "--config", "analysis", "--path", root)
 	result := object(f.call(0, "workspace", "status", "--path", root)["data"])
@@ -979,7 +979,7 @@ func TestRealSignalsDuringClone(t *testing.T) {
 	f.remote("worker")
 	f.repo("api")
 	f.repo("worker")
-	f.workspace([]Ref{{"api", "repos/api"}, {"worker", "repos/worker"}}, "")
+	f.workspace([]Ref{{Repo: "api", Target: "repos/api"}, {Repo: "worker", Target: "repos/worker"}}, "")
 	bin := filepath.Join(f.root, "signal-bin")
 	if err := os.Mkdir(bin, 0755); err != nil {
 		t.Fatal(err)

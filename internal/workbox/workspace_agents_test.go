@@ -97,7 +97,7 @@ func TestWorkspaceAgentEntryNeverOverwrites(t *testing.T) {
 func TestWorkspaceAgentEntryReplacementDuringClone(t *testing.T) {
 	f := setup(t)
 	f.repo("api")
-	f.workspace([]Ref{{"api", "repos/api"}}, "")
+	f.workspace([]Ref{{Repo: "api", Target: "repos/api"}}, "")
 	target := filepath.Join(f.root, "workspace")
 	outside := f.file("outside.md", "keep outside")
 	f.app.gitRunner = hookedGit{gitCLI{}, func(args []string) *Failure {
@@ -123,17 +123,17 @@ func TestWorkspaceAgentEntryReplacementDuringClone(t *testing.T) {
 
 func TestWorkspaceReservedAgentTarget(t *testing.T) {
 	for _, path := range []string{"AGENTS.md", "agents.MD/repo"} {
-		if e := validateRefs([]Ref{{"api", path}}); e == nil || e.Code != "CONFIG_INVALID" {
+		if e := validateRefs([]Ref{{Repo: "api", Target: path}}); e == nil || e.Code != "CONFIG_INVALID" {
 			t.Fatalf("accepted reserved target %q: %v", path, e)
 		}
 	}
-	if e := validateRefs([]Ref{{"api", "repos/AGENTS.md"}}); e != nil {
+	if e := validateRefs([]Ref{{Repo: "api", Target: "repos/AGENTS.md"}}); e != nil {
 		t.Fatal("reserved a nested path unrelated to workspace instructions")
 	}
 	// Previously saved configurations are also rejected before filesystem writes.
 	f := setup(t)
 	f.repo("api")
-	f.workspace([]Ref{{"api", "repos/api"}}, "")
+	f.workspace([]Ref{{Repo: "api", Target: "repos/api"}}, "")
 	f.sql("UPDATE workspace_config SET repos=?", `[{"repo":"api","target_dir":"AGENTS.md"}]`)
 	for _, action := range []string{"plan", "create"} {
 		target := filepath.Join(f.root, action)

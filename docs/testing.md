@@ -16,7 +16,7 @@ MySQL integration tests require the explicit `WORKBOX_TEST_MYSQL_DSN`, never dep
 
 Workspace agent-entry tests verify that new and empty workspaces receive a regular, non-executable root `AGENTS.md`, plan remains read-only, and no local skill directories or user-global skill installs are created. Real cloned repository rules and clean baselines are preserved. Exclusive file creation rejects files, links and directories without overwriting them; replacement during clone fails with partial output. Case-insensitive targets overlapping root `AGENTS.md` are rejected, including previously saved configurations, before any directory is created.
 
-The workspace tests verify plan makes no directories, create returns only prepared, full-history cloning and actual commits, script handoff without execution, independent plan/create snapshots, in-flight script snapshot consistency, exclusive targets and symlink races, and partial results after second-clone failure or cancellation. The handoff integration test separately executes and checks a declared artifact and verifies baseline HEAD/files remain unchanged.
+The workspace tests verify plan makes no destination directories, create returns only prepared, full-history cloning and actual commits, script handoff without execution, independent plan/create snapshots, in-flight script snapshot consistency, exclusive targets and symlink races, and partial results after second-clone failure or cancellation. The handoff integration test separately executes and checks a declared artifact and verifies baseline HEAD/files remain unchanged.
 
 The import/export tests assert whole-package atomicity, required/unknown/duplicate/null fields, self-contained references, idempotency with fresh remote validation, preservation of local UUIDs, no-overwrite publication, and optimistic conflicts during remote validation.
 
@@ -48,3 +48,5 @@ The installation smoke script forces SQLite and clears inherited MySQL connectio
 ## Terminal interaction
 
 Clack selection tests check retained defaults, navigation, collapsed confirmed answers, cancellation without a false confirmation, and rejection of empty menus. Interactive acceptance should run the built executable in an isolated PTY with temporary HOME/config/state: navigate with arrows, confirm, return to edit a custom path, cancel with Esc and SIGINT, verify hidden password input and restored echo/canonical mode, then repeat with `NO_COLOR`, `TERM=dumb` and a small viewport. Keep JSON/pipe execution noninteractive. This exercises Workbox's terminal driver as well as the Go Clack component model; upstream prompt-runner tests alone are insufficient.
+
+Baseline override tests use real local bare remotes to verify branch selection, historical commit checkout and detached HEAD, unchanged shared defaults, clearing overrides, SQLite persistence, import/export round trips, strict ref validation, and failures before target creation.

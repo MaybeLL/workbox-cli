@@ -27,6 +27,9 @@ func (s snapshot) clone() snapshot {
 	}
 	for name, value := range s.Workspaces {
 		value.Repos = append([]StoredRef{}, value.Repos...)
+		for i := range value.Repos {
+			value.Repos[i].Ref = cloneRef(value.Repos[i].Ref)
+		}
 		copy.Workspaces[name] = value
 	}
 	return copy

@@ -1,5 +1,5 @@
 .PHONY: build test race release
-VERSION ?= 0.3.2
+VERSION ?= 0.4.0
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=$(VERSION)" -o bin/workbox ./cmd/workbox
