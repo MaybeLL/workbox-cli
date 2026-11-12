@@ -1,6 +1,6 @@
 # Storage backends
 
-Workbox supports SQLite and MySQL through the same configuration-store interface. Backend selection affects configuration storage only; Git clones, workspace directories, the agent skill and uninstall behavior remain local.
+Workbox supports SQLite and MySQL through the same configuration-store interface. Backend selection affects configuration storage only; Git clones, Workbox directories, the agent skill and uninstall behavior remain local.
 
 ## SQLite
 
@@ -29,14 +29,14 @@ Make the file readable only by its owner (`chmod 600 /path/to/private/mysql.dsn`
 export WORKBOX_DB=mysql
 export WORKBOX_MYSQL_DSN_FILE=/path/to/private/mysql.dsn
 workbox init --backend mysql --skip-skill --no-copy-config
-workbox workspace-config list
+workbox workbox-config list
 ```
 
 `tls=true` verifies the server certificate against system roots and checks its hostname. Configure your organization's CA trust through the operating system when needed. A local disposable test server can use `tls=false`; the driver does not enable TLS by default. Consult the [Go MySQL driver's DSN documentation](https://github.com/go-sql-driver/mysql#dsn-data-source-name) for socket connections and connection options. Do not put credentials in command arguments, repository URLs, initialization scripts or exported configuration packages.
 
 The adapter enforces UTF-8 (`utf8mb4`), autocommit for schema setup, and explicit repeatable-read transactions for configuration operations. Multi-statements and client-side interpolation are disabled. Connection establishment defaults to five seconds, reads/writes to thirty seconds; each store operation has a thirty-second context limit. Failures return sanitized Workbox errors, without raw server diagnostics or DSNs. MySQL failures never silently fall back to SQLite.
 
-Initialization prepares `repo_config`, `workspace_config` and the metadata table `workbox_schema`. Lists/exports against an empty existing database return empty results without creating tables. Unknown versions, unrelated tables or non-InnoDB engines are rejected. Because MySQL DDL commits implicitly, setup uses a named database-specific lock and publishes metadata version 2 after preparing the summary column. An interrupted, recognized version-zero setup remains logically empty; the next valid write completes it. Configuration data changes then run in a separate atomic transaction.
+Initialization prepares the repository, Workbox, team and Skill tables as well as MySQL schema metadata. Lists/exports against an empty existing database return empty results without creating tables. Unknown versions, unrelated tables or non-InnoDB engines are rejected. Because MySQL DDL commits implicitly, setup uses a named database-specific lock and publishes each migration version after preparing its columns and tables. An interrupted, recognized version-zero setup remains logically empty; the next valid write completes it. Configuration data changes then run in a separate atomic transaction.
 
 Status, help, version, skill installation and uninstall do not connect to the configuration backend. Uninstall preserves the database, its data and any connection file. Back up and administer a shared MySQL database through your normal database operations. Both backends use the configuration root for `settings.json`; MySQL does not use its `config.db`. See [initialization and recovery](initialization.md).
 
@@ -62,7 +62,7 @@ type configStore interface {
 }
 ```
 
-`snapshot` returns a detached, consistent set of repository and workspace domain values. Reading an empty store does not initialize it. Business code validates names, references, paths, scripts and Git remotes, then prepares the next domain snapshot. `commit` must compare the current snapshot with `expected` inside its write transaction and atomically persist `next`, or return `CONFIG_CONFLICT` without overwriting concurrent changes. A failure before commit rolls back the batch. An ambiguous commit acknowledgement returns `COMMIT_OUTCOME_UNKNOWN`; callers must reread instead of assuming rollback. `commit(s,s)` prepares schema and commits without inventing business records. Network/Git validation stays outside write transactions.
+`snapshot` returns a detached, consistent set of repository and Workbox domain values. Reading an empty store does not initialize it. Business code validates names, references, paths, scripts and Git remotes, then prepares the next domain snapshot. `commit` must compare the current snapshot with `expected` inside its write transaction and atomically persist `next`, or return `CONFIG_CONFLICT` without overwriting concurrent changes. A failure before commit rolls back the batch. An ambiguous commit acknowledgement returns `COMMIT_OUTCOME_UNKNOWN`; callers must reread instead of assuming rollback. `commit(s,s)` prepares schema and commits without inventing business records. Network/Git validation stays outside write transactions.
 
 SQLite uses an immediate write transaction; MySQL locks its metadata row before its first consistent data read. Both then compare snapshots and apply changed rows. These locks coordinate Workbox writers; external SQL mutations bypass the adapter contract. SQL helpers are private to the relational adapters, and neither SQL statements, connections, transactions nor driver settings reach business code. The snapshot design fits small configuration catalogs; it is not intended for high-volume operational data.
 
@@ -74,7 +74,7 @@ Database schema 2 adds `repo_config.summary` with an empty default. Reads of sch
 1 return empty summaries without modifying the database. The next valid write
 migrates SQLite transactionally. MySQL serializes its DDL with the existing schema
 lock, detects a summary column left by interrupted migration, and publishes schema
-2 afterwards. Existing IDs and workspace references are preserved. Older binaries
+2 afterwards. Existing IDs and Workbox references are preserved. Older binaries
 reject schema 2 instead of silently discarding summaries; upgrade every client
 sharing the database before writing. Portable JSON packages remain version 1 and
 accept omitted summary fields as empty strings; old tools may reject packages
@@ -90,3 +90,7 @@ publishes version 3 last. Its interrupted team table/column creation can be retr
 All database writers use optimistic snapshot checking, including memberships.
 Portable packages remain version 1 with optional team_configs and teams fields.
 Older clients must not be used after the database is upgraded.
+
+## Document and Skill migration
+
+Database schema 4 adds document selections and Skill references to workbox configurations and a skill_config table for named registrations. Older databases are read without mutation and upgraded on write. Upgrade clients sharing the store before writing. Exports with team documents or registered Skills use package version 2. Import restores all registrations, including unreferenced ones, without fetching Skill sources or running npx. Existing repository validation still applies.

@@ -17,6 +17,7 @@ import (
 )
 
 var slug = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+var commitSHA = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 var scpURL = regexp.MustCompile(`^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9][A-Za-z0-9.-]*:[^\\\s]+$`)
 var drivePath = regexp.MustCompile(`^[A-Za-z]:`)
 
@@ -83,7 +84,7 @@ func validateRefs(refs []Ref) *Failure {
 			return e
 		}
 		if seen[ref.Repo] {
-			return invalid("A workspace cannot select a repository more than once")
+			return invalid("A Workbox cannot select a repository more than once")
 		}
 		seen[ref.Repo] = true
 		path := ref.Target
@@ -98,7 +99,7 @@ func validateRefs(refs []Ref) *Failure {
 		}
 		path = fold.String(path)
 		if path == "agents.md" || strings.HasPrefix(path, "agents.md/") {
-			return invalid("target_dir overlaps the workspace AGENTS.md instruction file")
+			return invalid("target_dir overlaps the Workbox AGENTS.md instruction file")
 		}
 		for _, old := range targets {
 			if path == old || strings.HasPrefix(path, old+"/") || strings.HasPrefix(old, path+"/") {
@@ -114,6 +115,12 @@ func validateWorkspace(w Workspace) *Failure {
 		return e
 	}
 	if e := validateRefs(w.Repos); e != nil {
+		return e
+	}
+	if e := validateSkillSelection(w); e != nil {
+		return e
+	}
+	if e := validateDocuments(w); e != nil {
 		return e
 	}
 	if !utf8.ValidString(w.Script) {
@@ -281,6 +288,7 @@ func (a *app) parsePackage(ctx context.Context, raw []byte) (Package, *Failure) 
 		return p, e
 	}
 	var root struct {
+		Skills     json.RawMessage `json:"skill_configs"`
 		Version    json.RawMessage `json:"schema_version"`
 		Repos      json.RawMessage `json:"repo_configs"`
 		Workspaces json.RawMessage `json:"workspace_configs"`
@@ -289,16 +297,36 @@ func (a *app) parsePackage(ctx context.Context, raw []byte) (Package, *Failure) 
 	rootKeys := []string{"schema_version", "repo_configs", "workspace_configs"}
 	var rootFields map[string]json.RawMessage
 	_ = json.Unmarshal(raw, &rootFields)
+	if rootFields["skill_configs"] != nil {
+		rootKeys = append(rootKeys, "skill_configs")
+	}
 	if _, ok := rootFields["team_configs"]; ok {
 		rootKeys = append(rootKeys, "team_configs")
 	}
 	if e := exact(raw, &root, rootKeys...); e != nil {
 		return p, e
 	}
-	if json.Unmarshal(root.Version, &p.Version) != nil || p.Version != 1 {
-		return p, fail("SCHEMA_UNSUPPORTED", "Only configuration package version 1 is supported")
+	if json.Unmarshal(root.Version, &p.Version) != nil || (p.Version != 1 && p.Version != 2) {
+		return p, fail("SCHEMA_UNSUPPORTED", "Unsupported configuration package version")
 	}
 	var rows []json.RawMessage
+	registered := map[string]bool{}
+	if root.Skills != nil {
+		if p.Version != 2 || json.Unmarshal(root.Skills, &rows) != nil {
+			return p, invalid("Invalid skill_configs")
+		}
+		for _, row := range rows {
+			v, e := decodeSkill(row)
+			if e != nil {
+				return p, e
+			}
+			if registered[v.Name] {
+				return p, invalid("Duplicate Skill registration")
+			}
+			registered[v.Name] = true
+			p.Skills = append(p.Skills, v)
+		}
+	}
 	teamKeys := map[string]bool{}
 	if root.Teams != nil {
 		if json.Unmarshal(root.Teams, &rows) != nil {
@@ -370,7 +398,16 @@ func (a *app) parsePackage(ctx context.Context, raw []byte) (Package, *Failure) 
 	seen := map[string]bool{}
 	for _, row := range rows {
 		var w Workspace
-		if e := exact(row, &w, "name", "repos", "init_script"); e != nil {
+		var fields map[string]json.RawMessage
+		_ = json.Unmarshal(row, &fields)
+		keys := []string{"name", "repos", "init_script"}
+		if p.Version == 2 && fields["skills"] != nil {
+			keys = append(keys, "skills")
+		}
+		if p.Version == 2 && fields["docs"] != nil {
+			keys = append(keys, "docs")
+		}
+		if e := exact(row, &w, keys...); e != nil {
 			return p, e
 		}
 		var values map[string]json.RawMessage
@@ -379,12 +416,23 @@ func (a *app) parsePackage(ctx context.Context, raw []byte) (Package, *Failure) 
 		if e != nil {
 			return p, e
 		}
+		if fields["docs"] != nil {
+			w.Docs, e = parseDocuments(fields["docs"])
+			if e != nil {
+				return p, e
+			}
+		}
+		for _, name := range w.Skills {
+			if !registered[name] {
+				return p, invalid("Package missing Skill " + name)
+			}
+		}
 		w.Repos = refs
 		if e := validateWorkspace(w); e != nil {
 			return p, e
 		}
 		if seen[w.Name] {
-			return p, invalid("Duplicate workspace configuration name")
+			return p, invalid("Duplicate Workbox configuration name")
 		}
 		seen[w.Name] = true
 		for _, ref := range w.Repos {
@@ -404,7 +452,7 @@ func validateBaselineRef(ref *BaselineRef) *Failure {
 	}
 	switch ref.Type {
 	case "commit":
-		if !regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`).MatchString(ref.Value) {
+		if !commitSHA.MatchString(ref.Value) {
 			return invalid("commit ref requires a full lowercase hexadecimal SHA")
 		}
 	case "branch":

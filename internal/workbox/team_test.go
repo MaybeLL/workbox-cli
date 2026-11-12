@@ -41,7 +41,7 @@ func TestTeamLifecycleAndMembership(t *testing.T) {
 	}
 	f.call(2, "repo-config", "list", "--team", "unknown")
 	f.workspace([]Ref{{Repo: "api", Target: "api"}}, "")
-	plan := object(f.call(0, "workspace", "plan", "--config", "analysis", "--path", filepath.Join(f.root, "work"))["data"])
+	plan := object(f.call(0, "plan", "--config", "analysis", "--path", filepath.Join(f.root, "work"))["data"])
 	teams := array(object(array(plan["repos"])[0])["teams"])
 	if object(teams[0])["name"] != "授信新名称" {
 		t.Fatal(teams)
@@ -87,7 +87,7 @@ func TestTeamMigration(t *testing.T) {
 			f.app.store = s
 			f.repo("api")
 			db := storeDB(t, s)
-			for _, q := range []string{"DROP TABLE team_config", "ALTER TABLE repo_config DROP COLUMN team_ids"} {
+			for _, q := range []string{"ALTER TABLE workspace_config DROP COLUMN docs", "ALTER TABLE workspace_config DROP COLUMN skills", "DROP TABLE skill_config", "DROP TABLE team_config", "ALTER TABLE repo_config DROP COLUMN team_ids"} {
 				if _, err := db.Exec(q); err != nil {
 					t.Fatal(err)
 				}
@@ -112,7 +112,7 @@ func TestTeamMigration(t *testing.T) {
 			if after.Repos["api"].ID != before.Repos["api"].ID || len(after.Repos["api"].TeamIDs) != 1 {
 				t.Fatal(after)
 			}
-			if err := db.QueryRow(versionQuery).Scan(&version); err != nil || version != 3 {
+			if err := db.QueryRow(versionQuery).Scan(&version); err != nil || version != 4 {
 				t.Fatal(version, err)
 			}
 		})

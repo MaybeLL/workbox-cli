@@ -1,6 +1,6 @@
 # Initialize Workbox
 
-Run `workbox init` once after installing or upgrading to a version with initialization support. Existing version-1 databases are adopted without changing their IDs or deleting data. Repository/workspace configuration commands, import/export, and workspace plan/create return `NOT_INITIALIZED` until settings have been published. Help, version, local workspace status, Skill installation and uninstall remain available.
+Run `workbox init` once after installing or upgrading to a version with initialization support. Existing version-1 databases are adopted without changing their IDs or deleting data. Repository/Workbox configuration commands, import/export, and workbox plan/create return `NOT_INITIALIZED` until settings have been published. Help, version, local workbox status, Skill installation and uninstall remain available.
 
 ## Interactive setup
 
@@ -12,7 +12,7 @@ workbox init
 
 The terminal wizard uses the [go-clack](https://github.com/orochaa/go-clack) Go port of Clack for selection components and visual styling; no JavaScript runtime is required. Completed choices collapse to a short answer. Use ↑/↓ to select, Enter to confirm and Esc or Ctrl+C to cancel. Menus distinguish selected and unselected options with filled/empty radio symbols (ASCII fallback where needed), without requiring color. `TERM=dumb`, unknown terminal dimensions, or viewports smaller than 80 columns / 18 rows use numbered choices. `NO_COLOR` disables color while keeping visible selection symbols. Choose local SQLite or an existing dedicated MySQL database. First-time setup defaults to SQLite and installing the companion Skill into `~/.agents/skills/workbox`. Choose “Use the displayed directory” to accept the Skill location, or “Choose a different directory” to enter a **parent** Skills directory. Paths are text input, not yes/no answers. MySQL's connection form defaults to port 3306 and verified TLS, and hides password input; alternatively supply a DSN file. Connection failures allow editing/retry. The final menu offers execute, back/edit or cancel. Nothing persistent is written before confirmation.
 
-CLI setup does not clone repositories, create workspace directories or run scripts. Workspace script initialization is a separate Agent/human workflow.
+CLI setup does not clone repositories, create Workbox directories or run scripts. Workbox script initialization is a separate Agent/human workflow.
 
 ## Scripts and Agents
 
@@ -48,7 +48,7 @@ Init rejects an environment override that would make the saved candidate differ 
 
 For different stores with nonempty or unreadable source data, scripts must explicitly choose `--copy-config` or `--no-copy-config`. Interactive copying defaults to no. Explicit no-copy allows repairing an unavailable old connection without connecting to it. The source is always retained.
 
-Copy freezes the source once before confirmation. It includes repository sources, workspace layouts and full scripts, but excludes IDs, credentials, settings, installed Skills and existing workspace files. Every remote branch is verified, so copying can fail offline. The target is reread during execution; new records get new IDs, identical records retain target IDs, and conflicting content rejects the entire batch. Concurrent target changes return `CONFIG_CONFLICT`. Same-database reinitialization does not copy data or revalidate all Git remotes. Source changes after the snapshot are not continuously synchronized.
+Copy freezes the source once before confirmation. It includes repository sources, Workbox layouts and full scripts, but excludes IDs, credentials, settings, installed Skills and existing Workbox files. Every remote branch is verified, so copying can fail offline. The target is reread during execution; new records get new IDs, identical records retain target IDs, and conflicting content rejects the entire batch. Concurrent target changes return `CONFIG_CONFLICT`. Same-database reinitialization does not copy data or revalidate all Git remotes. Source changes after the snapshot are not continuously synchronized.
 
 ## Completion and recovery
 
@@ -63,8 +63,12 @@ JSON keeps the `{ok,data,error}` envelope. Inspect `data.state`, `initialized`, 
 - Bad/unsupported settings: back up and move only `settings.json` aside before repair, or use a compatible CLI for a future version. There is no force-overwrite option.
 - Ctrl+C: return exit 130 and actual phase results when possible. Already-published settings remain. SIGKILL/power loss cannot promise final output.
 
-Settings, database and Skill are separate resources, not one transaction. Partial schema and unreferenced private credential files may remain after failure. Workbox does not delete them automatically. Uninstall preserves settings, every credential revision, databases and workspace files.
+Settings, database and Skill are separate resources, not one transaction. Partial schema and unreferenced private credential files may remain after failure. Workbox does not delete them automatically. Uninstall preserves settings, every credential revision, databases and Workbox files.
 
 ## Interaction implementation
 
 Workbox drives go-clack's headless selection components and theme through its own synchronous polling loop. This preserves cancellable input, signal handling, terminal restoration and the existing JSON contract without using the port's blocking prompt runner. Text fields retain terminal-native line editing; password echo is disabled before displaying the prompt. A fixed-width formatting sink avoids the port's zero-width/resize formatter failures; small or resized viewports switch to numbered input. This is the Go port, not the JavaScript `@clack/prompts` package.
+
+## GitLab access
+
+The wizard offers optional GitLab setup. Automation may pass `--gitlab-host HOST --gitlab-token-file FILE` alongside its backend and Skill choices. Add or rotate personal credentials later using `workbox auth gitlab set --host HOST --token-file FILE`. Host and HTTPS port identify the API instance. An SSH alias maps an SSH endpoint to that instance on this machine. Token files and aliases live under the private credentials directory and are excluded from export and backend copying.

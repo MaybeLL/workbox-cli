@@ -209,7 +209,7 @@ func (a *app) interactiveInit(ctx context.Context, root string, old settingsReco
 			continue
 		}
 		if sourceErr != nil || !sameStore(source, target) {
-			o.copy, e = terminalYes(ctx, w, "Copy existing repository/workspace configurations (retains the source)", false)
+			o.copy, e = terminalYes(ctx, w, "Copy existing repository/Workbox configurations (retains the source)", false)
 			if e != nil {
 				return nil, e
 			}
@@ -257,6 +257,30 @@ func (a *app) interactiveInit(ctx context.Context, root string, old settingsReco
 					fmt.Fprintln(w, e.Message)
 					continue
 				}
+			}
+		}
+		withGitlab, e := terminalYes(ctx, w, "Configure a personal GitLab token", false)
+		if e != nil {
+			return nil, e
+		}
+		if withGitlab {
+			host, e := terminalLine(ctx, w, "GitLab HTTPS hostname", "", false)
+			if e != nil {
+				return nil, e
+			}
+			o.gitlabHost, e = gitlabHost(host)
+			if e != nil {
+				fmt.Fprintln(w, e.Message)
+				continue
+			}
+			token, e := terminalLine(ctx, w, "GitLab token", "", true)
+			if e != nil {
+				return nil, e
+			}
+			o.gitlabToken, e = gitlabToken(token)
+			if e != nil {
+				fmt.Fprintln(w, e.Message)
+				continue
 			}
 		}
 		plan, e := planInit(ctx, root, old, o, target)

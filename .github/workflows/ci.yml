@@ -18,6 +18,13 @@ jobs:
         with:
           go-version: '1.26.x'
       - run: go test -race ./...
+      - name: Retry with the real npx Skill installer
+        env:
+          WORKBOX_TEST_REAL_NPX: '1'
+        run: |
+          node_bin=$(npm exec --yes --package=node@22.22.0 -- node -p 'process.execPath')
+          export PATH="$(dirname "$node_bin"):$PATH"
+          go test -count=1 ./internal/workbox -run '^TestRealNPXRetrySameInstance$'
       - run: CGO_ENABLED=0 go build -trimpath ./cmd/workbox
   mysql:
     runs-on: ubuntu-latest

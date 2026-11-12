@@ -12,6 +12,7 @@ import (
 )
 
 type initOptions struct {
+	gitlabHost, gitlabToken     string
 	backend, dsnFile, skillPath string
 	install, skip, copy, noCopy bool
 }
@@ -36,6 +37,26 @@ func initFlags(c command) (initOptions, *Failure) {
 	}
 	if o.dsnFile != "" && (os.Getenv("WORKBOX_MYSQL_DSN") != "" || os.Getenv("WORKBOX_MYSQL_DSN_FILE") != "") {
 		return o, fail("INVALID_ARGUMENTS", "--mysql-dsn-file cannot be combined with environment DSN sources")
+	}
+	host, hasHost := f["gitlab-host"]
+	file, hasFile := f["gitlab-token-file"]
+	if hasHost != hasFile {
+		return bad()
+	}
+	if hasHost {
+		var e *Failure
+		o.gitlabHost, e = gitlabHost(host)
+		if e != nil {
+			return o, e
+		}
+		raw, e := checkedFile(file, false)
+		if e != nil {
+			return o, e
+		}
+		o.gitlabToken, e = gitlabToken(string(raw))
+		if e != nil {
+			return o, e
+		}
 	}
 	return o, nil
 }
@@ -214,7 +235,7 @@ func planInit(ctx context.Context, root string, old settingsRecord, o initOption
 		}
 		p.frozen = &s
 		p.frozenAt = time.Now().UTC().Format(time.RFC3339)
-		if len(s.Repos) == 0 && len(s.Workspaces) == 0 && len(s.Teams) == 0 {
+		if len(s.Repos) == 0 && len(s.Workspaces) == 0 && len(s.Teams) == 0 && len(s.Skills) == 0 {
 			p.copyState = "skipped"
 			p.copyReason = "source_empty"
 			if o.copy {
@@ -344,9 +365,10 @@ func (a *app) executeInit(ctx context.Context, p *initPlan, result map[string]an
 		for _, kind := range []string{"added", "unchanged"} {
 			values := imported[kind].(map[string][]string)
 			counts := map[string]int{"repo_configs": len(values["repo_configs"]), "workspace_configs": len(values["workspace_configs"]), "team_configs": len(values["team_configs"])}
+			counts["skill_configs"] = len(values["skill_configs"])
 			copyResult[kind] = counts
 			if kind == "added" {
-				count = counts["repo_configs"] + counts["workspace_configs"] + counts["team_configs"]
+				count = counts["skill_configs"] + counts["repo_configs"] + counts["workspace_configs"] + counts["team_configs"]
 			}
 		}
 		copyResult["state"] = "copied"
@@ -376,6 +398,11 @@ func (a *app) executeInit(ctx context.Context, p *initPlan, result map[string]an
 		return failure(e)
 	}
 	settings["publication"] = "published"
+	if p.options.gitlabHost != "" {
+		if e := saveConnection(p.root, "token", p.options.gitlabHost, p.options.gitlabToken); e != nil {
+			return failure(e)
+		}
+	}
 	refreshInitResult(p.root, result)
 	if ctx.Err() != nil {
 		return failure(fail("INTERRUPTED", "Initialization interrupted"))
@@ -467,7 +494,7 @@ func initSummary(w io.Writer, p *initPlan) {
 	if p.options.copy && p.copyState == "not_attempted" {
 		fmt.Fprintln(w, "  Copy from: "+storageLabel(p.source))
 		if p.frozen != nil {
-			fmt.Fprintf(w, "  Copy: %d repositories, %d workspaces, %d teams (snapshot %s)\n", len(p.frozen.Repos), len(p.frozen.Workspaces), len(p.frozen.Teams), p.frozenAt)
+			fmt.Fprintf(w, "  Copy: %d repositories, %d Workbox configurations, %d teams, %d Skills (snapshot %s)\n", len(p.frozen.Repos), len(p.frozen.Workspaces), len(p.frozen.Teams), len(p.frozen.Skills), p.frozenAt)
 		}
 		fmt.Fprintln(w, "  Git branches will be checked; source data is retained.")
 	} else {

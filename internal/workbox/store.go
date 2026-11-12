@@ -85,7 +85,7 @@ func sqliteSchema(ctx context.Context, tx *sql.Tx) (bool, *Failure) {
 	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return false, dbError(err)
 	}
-	if version >= 1 && version <= 3 {
+	if version >= 1 && version <= 4 {
 		return true, nil
 	}
 	if version == 0 {
@@ -177,7 +177,14 @@ func (s *sqliteStore) commit(ctx context.Context, expected, next snapshot) *Fail
 			}
 		}
 	}
-	current, e := readSnapshot(ctx, tx, 3)
+	if version < 4 {
+		for _, q := range []string{"ALTER TABLE workspace_config ADD COLUMN docs TEXT NOT NULL DEFAULT '[]'", "ALTER TABLE workspace_config ADD COLUMN skills TEXT NOT NULL DEFAULT '[]'", "CREATE TABLE skill_config (name TEXT PRIMARY KEY NOT NULL,source TEXT NOT NULL)", "PRAGMA user_version=4"} {
+			if _, err := tx.ExecContext(ctx, q); err != nil {
+				return dbError(err)
+			}
+		}
+	}
+	current, e := readSnapshot(ctx, tx, 4)
 	if e != nil {
 		return e
 	}

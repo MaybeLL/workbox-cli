@@ -97,7 +97,7 @@ func (a *app) crud(ctx context.Context, c command) (any, *Failure) {
 				}
 			}
 			if len(used) > 0 {
-				e := fail("CONFIG_CONFLICT", "Repository is referenced by workspace configurations")
+				e := fail("CONFIG_CONFLICT", "Repository is referenced by Workbox configurations")
 				e.Details["workspace_configs"] = used
 				return nil, e
 			}
@@ -176,6 +176,16 @@ func (a *app) crud(ctx context.Context, c command) (any, *Failure) {
 			return nil, e
 		}
 	}
+	if file, ok := c.flags["docs-file"]; ok {
+		raw, e := readText(file)
+		if e != nil {
+			return nil, e
+		}
+		value.Docs, e = parseDocuments(raw)
+		if e != nil {
+			return nil, e
+		}
+	}
 	if file, ok := c.flags["repos-file"]; ok {
 		raw, e := readText(file)
 		if e != nil {
@@ -209,7 +219,7 @@ func (a *app) crud(ctx context.Context, c command) (any, *Failure) {
 			return nil, e
 		}
 	}
-	w = workspaceRow{ID: value.ID, Name: value.Name, Repos: refs, Script: value.Script}
+	w = workspaceRow{ID: value.ID, Name: value.Name, Repos: refs, Script: value.Script, Docs: value.Docs, Skills: value.Skills}
 	next := s.clone()
 	next.Workspaces[w.Name] = w
 	e = a.store.commit(ctx, s, next)
@@ -270,7 +280,7 @@ func (a *app) export(ctx context.Context, output string) (any, *Failure) {
 		}
 		return nil, ioFailure("Could not atomically publish export file")
 	}
-	return map[string]any{"output_path": target, "schema_version": 1}, nil
+	return map[string]any{"output_path": target, "schema_version": p.Version}, nil
 }
 func (a *app) importFile(ctx context.Context, input string) (any, *Failure) {
 	raw, e := readText(input)
@@ -311,6 +321,21 @@ func (a *app) importPackage(ctx context.Context, incoming Package) (any, *Failur
 			added["team_configs"] = append(added["team_configs"], team.Key)
 		}
 	}
+	if len(incoming.Skills) > 0 {
+		added["skill_configs"] = []string{}
+		unchanged["skill_configs"] = []string{}
+	}
+	for _, v := range incoming.Skills {
+		old, ok := s.Skills[v.Name]
+		if ok && old != v {
+			return nil, fail("CONFIG_CONFLICT", "Imported Skill conflicts with local source: "+v.Name)
+		}
+		if ok {
+			unchanged["skill_configs"] = append(unchanged["skill_configs"], v.Name)
+		} else {
+			added["skill_configs"] = append(added["skill_configs"], v.Name)
+		}
+	}
 	localRepos := map[string]Repo{}
 	for _, r := range local.Repos {
 		localRepos[r.Name] = r
@@ -333,7 +358,7 @@ func (a *app) importPackage(ctx context.Context, incoming Package) (any, *Failur
 	for _, w := range incoming.Workspaces {
 		old, ok := localWorkspaces[w.Name]
 		if ok && !jsonEqual(old, w) {
-			return nil, fail("CONFIG_CONFLICT", "Imported workspace conflicts with local content")
+			return nil, fail("CONFIG_CONFLICT", "Imported Workbox conflicts with local content")
 		}
 		if ok {
 			unchanged["workspace_configs"] = append(unchanged["workspace_configs"], w.Name)
@@ -346,11 +371,14 @@ func (a *app) importPackage(ctx context.Context, incoming Package) (any, *Failur
 			return nil, e
 		}
 	}
-	result := map[string]any{"schema_version": 1, "added": added, "unchanged": unchanged}
-	if len(incoming.Repos) == 0 && len(incoming.Workspaces) == 0 && len(incoming.Teams) == 0 {
+	result := map[string]any{"schema_version": incoming.Version, "added": added, "unchanged": unchanged}
+	if len(incoming.Repos) == 0 && len(incoming.Workspaces) == 0 && len(incoming.Teams) == 0 && len(incoming.Skills) == 0 {
 		return result, nil
 	}
 	next := s.clone()
+	for _, v := range incoming.Skills {
+		next.Skills[v.Name] = v
+	}
 	for _, team := range incoming.Teams {
 		if _, ok := next.Teams[team.Key]; ok {
 			continue
@@ -389,7 +417,7 @@ func (a *app) importPackage(ctx context.Context, incoming Package) (any, *Failur
 		if e != nil {
 			return nil, e
 		}
-		next.Workspaces[w.Name] = workspaceRow{ID: id, Name: w.Name, Repos: refs, Script: w.Script}
+		next.Workspaces[w.Name] = workspaceRow{ID: id, Name: w.Name, Repos: refs, Script: w.Script, Docs: w.Docs, Skills: w.Skills}
 	}
 	e = a.store.commit(ctx, s, next)
 	if e != nil {

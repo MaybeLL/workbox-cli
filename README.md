@@ -1,10 +1,10 @@
 # workbox
 
-Prepare local Git workspaces from reusable configurations. `workbox` stores repository sources and workspace layouts in SQLite (default) or MySQL, validates real remote branches, and clones clean analysis baselines. Initialization scripts are returned to the caller as text and **never executed by the CLI**.
+Prepare local Workbox instances from reusable configurations. `workbox` stores repository sources and Workbox layouts in SQLite (default) or MySQL, verifies remote branches during repository registration, and prepares a directory for remote code analysis. Initialization scripts are returned to the caller as text and **never executed by the CLI**.
 
-Workbox is written in Go and builds to a single executable with a bundled, pure-Go SQLite engine. Users need Git, with existing HTTPS/SSH authentication configured. Supported build targets are macOS and Linux on ARM64 and AMD64; Windows is not supported in this release. Development checkouts use native Git worktrees inside the same workspace.
+Workbox is written in Go and builds to a single executable with a bundled, pure-Go SQLite engine. Users need Git, with existing HTTPS/SSH authentication configured. Supported build targets are macOS and Linux on ARM64 and AMD64; Windows is not supported in this release. Development checkouts use native Git worktrees inside the same Workbox.
 
-设计与职责边界见[设计说明（中文）](docs/design.md)。
+项目的目标场景见[产品愿景](docs/Vision.md)，已确认的职责边界见[设计决策](docs/Decisions.md)。
 
 ## Install
 
@@ -24,11 +24,11 @@ make build
 ./bin/workbox --version
 ```
 
-Prebuilt release executables require no Go, Python, C compiler, or separately installed SQLite library. Add the executable's directory to PATH to use `workbox` directly. Configuration schema version 1 remains compatible across implementations; no data migration is needed.
+Prebuilt release executables require no Go, Python, C compiler, or separately installed SQLite library. Add the executable's directory to PATH to use `workbox` directly.
 
 ## Initialize
 
-Run `workbox init` after installation or upgrade. The terminal wizard selects SQLite or an existing MySQL database, offers Skill installation (default yes), and confirms before writing. Configuration commands and workspace plan/create require this step; existing databases and IDs are preserved.
+Run `workbox init` after installation or upgrade. The terminal wizard selects SQLite or an existing MySQL database, offers Skill installation (default yes), and confirms before writing. Configuration commands and workbox plan/create require this step; existing databases and IDs are preserved.
 
 For scripts: `workbox init --backend sqlite --skip-skill --format json`. Use `--install-skill` to install the companion Skill and `--skill-path DIR` to choose its parent directory. See [initialization, switching and recovery](docs/initialization.md).
 
@@ -44,9 +44,9 @@ This installs the single bundled `workbox` skill and its workflow reference into
 
 To choose a different skills parent directory, use `workbox skill install --path /path/to/skills`. The installer always adds a `workbox` subdirectory. Identical content returns `state: "unchanged"`; different, incomplete, extra or symlinked content returns `SKILL_CONFLICT` without overwriting anything. To replace a different or customized version, back up and move the existing `workbox` directory aside, then rerun the command. There is no force-overwrite mode.
 
-Workbox uses one global skill for configuration, initialization and development. Starting with 0.1.3, `workspace create` also writes a short `AGENTS.md` at the new workspace root. This entry point tells agents to load the global `workbox` skill and its workflow reference; detailed rules stay in that skill. No project-local `workbox-dev` skill is installed. If a global skill was installed with `--path`, use that configured location. If it cannot be found, the entry point asks the agent to confirm its location or suggest installation before proceeding.
+The global Skill reads the instance repository list and any team-supplied instructions. The global Workbox skill covers configuration, script handoff and worktree development.
 
-Start an agent session at the workspace root. A session started directly inside a baseline repository or a development worktree may stop discovering ancestor rules at a Git boundary or use nearer repository instructions; explicitly include the workspace's `AGENTS.md` and global `workbox` skill in such sessions. Existing repository instructions remain applicable. The entry point guides agent behavior; it does not make baselines physically read-only. Existing workspaces are not retrofitted automatically.
+Start an agent session at the Workbox root. A session started directly inside a baseline repository or a development worktree may stop discovering ancestor rules at a Git boundary or use nearer repository instructions; explicitly include the team's `AGENTS.md`, when configured, and global `workbox` skill in such sessions. Existing repository instructions remain applicable. The entry point guides agent behavior; it does not make baselines physically read-only. Existing Workbox instances are not retrofitted automatically.
 
 ## Uninstall
 
@@ -57,13 +57,13 @@ workbox uninstall --dry-run   # Preview without changing files
 workbox uninstall
 ```
 
-Homebrew installations are removed through `brew uninstall --formula --force maybell/tap/workbox`, including older installed Workbox versions. Direct archive installations remove the running `workbox` executable and its invocation symlink, if present. Settings, all saved credential revisions, configuration databases, existing workspaces, other skills and shared parent directories are preserved. No administrator password is requested; the installation directory must be writable by your user.
+Homebrew installations are removed through `brew uninstall --formula --force maybell/tap/workbox`, including older installed Workbox versions. Direct archive installations remove the running `workbox` executable and its invocation symlink, if present. Settings, all saved credential revisions, configuration databases, existing Workbox instances, other skills and shared parent directories are preserved. No administrator password is requested; the installation directory must be writable by your user.
 
-Uninstall discovers recorded skill locations and the standard `~/.agents/skills/workbox`, `~/.codex/skills/workbox` and `~/.claude/skills/workbox` directories. It verifies every skill before deleting anything. Changed, incomplete, extra or symlinked content causes `SKILL_CONFLICT`; back up and move that directory aside before retrying. A later package-manager error can leave skills already removed; JSON output reports partial results and retains configuration/workspaces.
+Uninstall discovers recorded skill locations and the standard `~/.agents/skills/workbox`, `~/.codex/skills/workbox` and `~/.claude/skills/workbox` directories. It verifies every skill before deleting anything. Changed, incomplete, extra or symlinked content causes `SKILL_CONFLICT`; back up and move that directory aside before retrying. A later package-manager error can leave skills already removed; JSON output reports partial results and retains configuration/Workbox instances.
 
 Starting with 0.1.2, `skill install` records every custom installation path. For a custom path installed with 0.1.1, run `workbox skill install --path DIR` once to register identical content, or use `workbox uninstall --skill-path DIR`. Uninstall does not search the whole disk or remove archive/source checkouts. Installation records use `WORKBOX_STATE_HOME`, otherwise `${XDG_STATE_HOME:-~/.local/state}/workbox`; keep the same environment when installing and uninstalling.
 
-## First workspace
+## First Workbox
 
 The URL below is a placeholder. Replace it with a repository you can access and a branch that actually exists. Git must already have credentials and, for SSH, a trusted host key.
 
@@ -77,30 +77,53 @@ JSON
 
 cat > init.sh <<'SH'
 #!/bin/sh
-# Expected artifact: READY.txt at the workspace root, containing ready.
+# Expected artifact: READY.txt at the Workbox root, containing ready.
 printf '%s\n' 'ready' > READY.txt
 SH
 
-workbox workspace-config add analysis \
+workbox workbox-config add analysis \
   --repos-file repos.json --init-script-file init.sh
-workbox workspace plan --config analysis --path ./analysis-one
-workbox workspace create --config analysis --path ./analysis-one --format json
-workbox workspace status --path ./analysis-one
+workbox plan --config analysis --path ./analysis-one
+workbox create --config analysis --path ./analysis-one --format json
+workbox status --path ./analysis-one
 ```
 
-The target must not exist, including an existing empty directory. Its parent must already exist and be writable. Creation returns `state: "prepared"`, each actual branch and full commit, and the complete `init_script` from the **same configuration snapshot**. It does not create `READY.txt`. An Agent or human reviews and runs that returned text separately, then verifies the promised artifact. See [the Agent handoff and worktree guide](docs/agent-guide.md).
+The destination must be new and its parent writable. Plan checks the configuration and path locally. Create reads its own configuration snapshot and returns `state: "prepared"`, the configured repositories and the original `init_script` for separate review. Scripts that use a checkout need that repository to be requested and prepared first. See the [handoff guide](skills/workbox/references/agent-guide.md).
 
 ```text
 analysis-one/
-├── AGENTS.md                  points agents to the global workbox skill
-├── repos/api/                 analysis baseline; keep its work files and HEAD unchanged
 └── .workbox/
-    └── worktree/              development worktrees are direct children
+    └── repos.json
 ```
 
-Clone is full-history, single-branch, without recursive submodules. `plan` checks paths and remotes without creating the destination; commit checks use a temporary repository that is removed afterwards. `create` independently rechecks using a new snapshot; a previous plan is not a lock. Empty workspace configurations are allowed and still create `.workbox/worktree/`.
+Start the Agent at the root. It can search and read code remotely from the listed projects, including projects in different GitLab groups. Empty configurations write an empty JSON array. Planning and creation never check out the listed business repositories. Creation retrieves explicitly selected documents and Skills. Scripts that previously consumed checkout fields such as `resolved_commit` or entered `target_dir` immediately after create must defer those steps until a checkout is requested. Only check out repositories requested by the user, at their configured `target_dir`. A request for a development worktree includes preparing its missing baseline. Place worktrees under `.workbox/worktree/`.
 
-## Per-workspace baseline overrides
+## Team documents and Skills
+
+Use `workbox auth gitlab set --host gitlab.example.com --token-file FILE` after init, or pass `--gitlab-host` and `--gitlab-token-file` during init. Use a personal token with read API access. Credentials and SSH aliases stay on the user's machine.
+
+Pass a JSON array to `workbox workbox-config add/update NAME --docs-file FILE`. An empty array clears the selection. For example:
+
+```json
+[{"project_url":"https://gitlab.example.com/team/handbook","ref":{"type":"branch","value":"main"},"source_path":"rules/review.md","target_path":"AGENTS.md"}]
+```
+
+Each create resolves a project's branch once and copies the selected files verbatim. A commit ref pins a version across creates. The root AGENTS.md exists only when explicitly configured.
+
+```sh
+workbox skill-config add --git-url https://gitlab.example.com/team/skills.git --subdir analysis
+workbox skill-config add --installer npx-skills https://github.com/mattpocock/skills --skill grill-me
+workbox workbox-config add-skill analysis grill-me
+workbox create --config analysis --path ./demand
+workbox search --path ./demand --query CreateOrder --repo api --ref api=release/11 --format json
+workbox read --path ./demand --repo api --file pkg/order.go --ref release/11 --lines 12-25
+```
+
+Git sources use normal Git credentials; registration reads the name from SKILL.md. npx registration records the selected name without invoking npx. Creation installs selected Skills under `.agents/skills/`; the npx installer uses `skills@1.7.6` and requires npx with Node 22.20 or newer. Bundle companion files as regular files and directories. Remove a selection with `workbox workbox-config remove-skill NAME SKILL` before deleting a referenced registration. The global Workbox Skill remains user-installed.
+
+Search and read are limited to repositories in the instance manifest. Use repeated `--repo` and `--ref NAME=REF` to select multiple targets. Search returns per-repository coverage and retains hits from successful pages when another page or repository fails. A pinned SHA can be read directly. Empty search results without ref evidence report unknown coverage. For an SSH alias, use `workbox auth gitlab alias set --ssh-host ssh.company --host gitlab.company:8443` and retry in the same instance.
+
+## Per-Workbox baseline overrides
 
 Each repository selection may include an optional `ref`. Omit it to inherit the
 Repo configuration's `default_branch`, or select an existing branch or a full
@@ -113,25 +136,19 @@ lowercase commit SHA (40 hex characters for SHA-1, 64 for SHA-256):
 ]
 ```
 
-Save this array with `workspace-config add/update NAME --repos-file FILE`.
-This only changes that workspace configuration; shared Repo defaults and existing
+Save this array with `workbox-config add/update NAME --repos-file FILE`.
+This only changes that Workbox configuration; shared Repo defaults and existing
 checkouts remain unchanged. Updating the array with `ref` omitted restores
 inheritance. Explicit null, tags, short SHAs, revision expressions and unknown
 fields are rejected. The same fields survive show/list, export/import and storage
 backend copies; existing configurations need no migration. Older Workbox versions
 do not support these overrides and must not be used to edit the same database.
 
-Plan and create report the effective `ref` and `resolved_commit`, alongside the
-Repo's `default_branch`. Create resolves branches again and checks out its captured
-SHA even if the branch advances during clone. A force-push that makes that SHA
-unavailable causes failure, never fallback. Branch baselines retain the selected
-branch name; commit baselines are detached (`branch: null`) and fetch full history
-reachable from that commit, without recursive submodules. The remote must permit
-fetching the specified SHA; an inaccessible or non-commit object fails verification
-before the workspace directory is created. Plan does not freeze a later create:
-use a commit ref to pin a baseline across invocations.
+Plan and create report the configured default branch and optional ref override. The Agent confirms the analysis scope and versions with the user where needed, then resolves refs when accessing the selected repositories.
 
 ## Commands
+
+Existing scripts may still use the former `workspace-config` and `workspace plan/create/status` spellings. Stored configurations, export files and JSON response keys remain compatible.
 
 All commands, including help and version, accept `--format json` anywhere in the command. Default output is readable text.
 
@@ -145,15 +162,15 @@ workbox repo-config show NAME
 workbox repo-config update NAME [--url URL] [--default-branch BRANCH] [--summary TEXT]
 workbox repo-config remove NAME
 
-workbox workspace-config add NAME [--repos-file FILE] [--init-script-file FILE]
-workbox workspace-config list
-workbox workspace-config show NAME
-workbox workspace-config update NAME [--repos-file FILE] [--init-script-file FILE]
-workbox workspace-config remove NAME
+workbox workbox-config add NAME [--repos-file FILE] [--init-script-file FILE]
+workbox workbox-config list
+workbox workbox-config show NAME
+workbox workbox-config update NAME [--repos-file FILE] [--init-script-file FILE]
+workbox workbox-config remove NAME
 
-workbox workspace plan --config NAME --path DIR
-workbox workspace create --config NAME --path DIR
-workbox workspace status --path DIR
+workbox plan --config NAME --path DIR
+workbox create --config NAME --path DIR
+workbox status --path DIR
 workbox config export --output FILE
 workbox config import --input FILE
 workbox skill install [--path SKILLS_DIRECTORY]
@@ -162,17 +179,17 @@ workbox --help
 workbox --version
 ```
 
-Names match `[a-z0-9][a-z0-9._-]{0,63}`. Updates need at least one field, preserve IDs, and validate the complete merged result. An omitted file keeps the old value; an empty script file clears the script, and `[]` clears repository selections. Input is UTF-8. A nonempty script requires a first-line shebang with an interpreter, but the interpreter is not checked or invoked. Files are read at save time; their paths are not stored.
+Names match `[a-z0-9][a-z0-9._-]{0,63}`. Updates need at least one field, preserve IDs, and validate the complete merged result. An omitted file keeps the old value; an empty script file clears the script, and `[]` clears repository selections. Input is UTF-8. A nonempty script requires a first-line shebang with an interpreter, but the interpreter is not checked or invoked. Local configuration input files are read at save time. GitLab Markdown selections store their source and target paths until creation.
 
 Repository URLs support HTTPS, `ssh://user@host/path`, and SCP-style `git@host:path`, across hosted or self-hosted Git services. Local paths and credential-bearing URLs are rejected. Passwords/tokens must use Git's credential facilities. Store no secrets or sensitive data in configurations or scripts. Raw Git stderr is deliberately excluded from errors to avoid exposing authentication secrets.
 
-Every add, update and nonempty import checks the exact remote `refs/heads/BRANCH`. Tags do not count and no default branch is guessed. Ambiguous inaccessible/missing remotes return `REMOTE_UNVERIFIABLE`; Git's generic access denial is not evidence of nonexistence. Queries time out after 60 seconds, clones after 1800 seconds per repository, and other Git operations after 60 seconds. All Git operations are noninteractive; no automatic retries occur.
+Every add, update and nonempty import checks the exact remote `refs/heads/BRANCH`. Tags do not count and no default branch is guessed. Ambiguous inaccessible/missing remotes return `REMOTE_UNVERIFIABLE`; Git's generic access denial is not evidence of nonexistence. Queries time out after 60 seconds, and other Git operations after 60 seconds. All Git operations are noninteractive; no automatic retries occur.
 
-Workspace repository lists contain only `repo` and `target_dir`. Repository selections cannot repeat. Target paths use `/`, must be relative, and cannot contain empty, `.`, `..`, `.git`, or `.workbox` segments. Backslashes, drive paths, and ancestor/descendant or case-folded overlaps are rejected. The top-level `AGENTS.md` name and paths below it are reserved (case-insensitive); repository targets cannot overlap the workspace instruction file. Referenced repository configurations cannot be removed; the error lists the workspace configurations using them. Removing a workspace configuration never removes a directory.
+Each Workbox repository entry requires `repo` and `target_dir` and accepts an optional `ref`. Repository selections cannot repeat. Target paths use `/`, must be relative, and cannot contain empty, `.`, `..`, `.git`, or `.workbox` segments. Backslashes, drive paths, and ancestor/descendant or case-folded overlaps are rejected. The top-level `AGENTS.md` name and paths below it are reserved (case-insensitive); repository targets cannot overlap the Workbox instruction file. Referenced repository configurations cannot be removed; the error lists the Workbox configurations using them. Removing a Workbox configuration never removes a directory.
 
 ## Storage and portability
 
-SQLite is the first-run wizard default. Both backends save initialization settings under `WORKBOX_CONFIG_HOME`, otherwise `${XDG_CONFIG_HOME:-~/.config}/workbox`. SQLite uses `config.db` there; MySQL uses an existing dedicated database and saves a private immutable credential copy there. Relative roots resolve from the current directory. Schema version 1 remains compatible with previous releases.
+SQLite is the first-run wizard default. Both backends save initialization settings under `WORKBOX_CONFIG_HOME`, otherwise `${XDG_CONFIG_HOME:-~/.config}/workbox`. SQLite uses `config.db` there; MySQL uses an existing dedicated database and saves a private immutable credential copy there. Relative roots resolve from the current directory.
 
 For MySQL, create a private UTF-8 DSN file, for example `workbox:REPLACE_PASSWORD@tcp(db.example.org:3306)/workbox?tls=true`, then run:
 
@@ -187,7 +204,7 @@ Choose `--copy-config` instead when you want to copy existing configurations whi
 
 Both adapters implement the same storage interface, keeping SQL, schema initialization, transactions and locking outside business operations. See [backend setup, migration and adapter contracts](docs/storage.md).
 
-Both backends have two business tables, `repo_config` and `workspace_config`; MySQL also has a `workbox_schema` metadata table. UUID references are local to each store. There is no workspace instance registry or manifest. Configuration edits affect future creates only.
+Both backends store team, repository and Workbox configurations. UUID references are local to each store. Each Workbox has its own repository list on disk. Configuration edits affect future creates only.
 
 After the settings gate, missing SQLite DBs and empty MySQL databases return empty lists/exports without initializing tables. Init itself explicitly prepares tables. A nonexistent or inaccessible MySQL database is an error. Missing configuration lookups fail without initialization. Status, help, version, skill installation and uninstall do not connect to the DB. Invalid writes and failed remote validation do not initialize a DB. Unknown DB versions are rejected without migration; damaged/unreadable DBs are errors. Short read transactions provide snapshots; network checks run outside write transactions. Writes recheck the snapshot under a transaction and reject concurrent changes with `CONFIG_CONFLICT`. Uninstall preserves both local and remote configuration.
 
@@ -196,13 +213,13 @@ workbox config export --output workbox-config.json --format json
 workbox config import --input workbox-config.json --format json
 ```
 
-The version 1 package contains exactly `schema_version`, `repo_configs`, and `workspace_configs`. It excludes UUIDs and includes full scripts. Arrays export by configuration name; workspace repository order is preserved. A package must contain every referenced repository. Unknown fields, duplicate names/fields, invalid types, scripts or paths, and dangling references are rejected. An import verifies all packaged remotes and commits the whole package in one transaction. Same-name/same-content records are no-ops (still remotely verified); different content rejects the entire package. There is no overwrite mode.
+Packages that contain document selections or any registered Skill export as version 2. Skill sources are verified offline on import. The version 1 package contains `schema_version`, `repo_configs`, `workspace_configs` and optional `team_configs`. It excludes UUIDs and includes full scripts. Arrays export by configuration name; Workbox repository order is preserved. A package must contain every referenced repository. Unknown fields, duplicate names/fields, invalid types, scripts or paths, and dangling references are rejected. An import verifies all packaged business repository remotes and commits the whole package in one transaction. Same-name/same-content records are no-ops (still remotely verified); different content rejects the entire package. There is no overwrite mode.
 
 Exports use a temporary file in the output parent, fsync its contents, and publish with a no-overwrite atomic hard link. Existing files or symlinks are never replaced. The output filesystem must support hard links; otherwise the command reports `IO_ERROR` and cleans its temporary file.
 
 ## Status and failure results
 
-`workspace status` is entirely local and read-only: no network, scripts or DB, with `GIT_OPTIONAL_LOCKS=0`. It recursively finds baseline `.git` entries in ordinary directories, stopping at each checkout (submodules/nested repositories are not separate entries). It skips directory symlinks and `.workbox`, then separately inspects **every direct child** of `.workbox/worktree/`. A worktree must be linked and verified against a discovered baseline's common Git directory and worktree records. Foreign, broken, unreadable and symlink worktree candidates are reported as errors.
+`workbox status` is entirely local and read-only: no network, scripts or DB, with `GIT_OPTIONAL_LOCKS=0`. It recursively finds baseline `.git` entries in ordinary directories, stopping at each checkout (submodules/nested repositories are not separate entries). It skips directory symlinks and `.workbox`, then separately inspects **every direct child** of `.workbox/worktree/`. A worktree must be linked and verified against a discovered baseline's common Git directory and worktree records. Foreign, broken, unreadable and symlink worktree candidates are reported as errors.
 
 Each checkout reports `kind`, relative `path`, `branch`, full `commit`, `clean`, and `error`. Detached HEAD has `branch: null`; an unborn repository has `commit: null`. Clean accounts for staged, unstaged, all untracked files and initialized submodule changes; ignored files do not count. Dirty is a successful observation. Partial failures keep readable results and scan errors, with unknown fields `null`. Status does not provide an atomic snapshot across repositories.
 
@@ -212,7 +229,7 @@ JSON stdout always contains exactly one envelope, even for parser errors:
 {"ok": true, "data": {"program": "workbox", "version": "0.2.0"}, "error": null}
 ```
 
-Errors use `{"code":"...","message":"...","details":{}}`; partial results remain in `data`. Diagnostic output belongs on stderr. Create errors retain the directory and report each repository as `completed`, `failed` or `not_attempted`, including actual commits already read. There is no rollback, overwrite, resume, or cleanup. Use a fresh target or explicitly handle the existing directory. SIGINT/SIGTERM return best-effort partial JSON with exit 130; process crashes/forced kills cannot promise output.
+Errors use `{"code":"...","message":"...","details":{}}`; partial results remain in `data`. Diagnostic output belongs on stderr. Create prepares files in a private sibling directory. A failed download or install reports its stage and item; fix it and retry the same destination. Exclusive publication preserves a competing destination. Cancellation after successful publication retains the prepared result. SIGINT/SIGTERM return best-effort partial JSON with exit 130; process crashes/forced kills cannot promise output.
 
 | Exit | Meaning / codes |
 | --- | --- |
@@ -230,18 +247,18 @@ go test ./...
 go test -race ./...
 ```
 
-Tests isolate all configuration state and Git configuration in temporary directories. HTTPS-shaped URLs are redirected by Git's `insteadOf` to temporary local remotes, so actual branch queries, clones, status, submodules, and linked worktrees run without network or user credentials. Fault injection covers concurrent writes, path races, cancellation, timeout and partial clone failures. Actual permission failures and process signals are also checked. MySQL integration tests run only with an explicit `WORKBOX_TEST_MYSQL_DSN` and create random, test-owned databases; CI uses an ephemeral MySQL 8.4 service. No tests use deployment credentials or working repositories. See [test contracts](docs/testing.md).
+The suite uses temporary configuration directories and local Git remotes. To include MySQL integration tests, set `WORKBOX_TEST_MYSQL_DSN` to a dedicated test server before running the commands above. The test account needs permission to create and drop disposable databases and create triggers. Without that variable, the MySQL tests are skipped. CI uses an ephemeral MySQL 8.4 service.
 
-`make release VERSION=0.2.0` cross-compiles the four targets, creates archives and SHA-256 checksums, and generates a source formula pinned to the release's Git revision. The release workflow builds native macOS Homebrew bottles and adds their checksums before publishing. The output directory must not already exist; build failures preserve partial artifacts. Run `sh scripts/check-install.sh workbox` to check an installed executable with temporary configuration and workspace directories. See [distribution and release instructions](docs/distribution.md).
+When changing the `init` wizard, build the CLI and run it in a terminal with temporary `HOME`, `WORKBOX_CONFIG_HOME` and `WORKBOX_STATE_HOME` directories. Use the arrow keys and Enter to choose a backend, go back to edit a custom Skill path, then cancel with Esc or Ctrl+C. Check that password input stays hidden and that terminal echo and line editing recover after cancellation. Repeat with `NO_COLOR=1`, `TERM=dumb` and a narrow viewport. Check that JSON and piped invocations return without prompting.
 
-Version 0.2 intentionally excludes script execution, worktree create/delete commands, baseline synchronization, branch overrides, automatic schema migrations, import overwrite, background jobs and persistent workspace state.
+Run `sh scripts/check-install.sh /path/to/workbox` to check an installed executable in isolation. For packaging and publication, follow the [release instructions](docs/distribution.md).
 
 ## Repository summaries and private catalogs
 
 Repo configurations include optional `summary` text (empty by default). Set it
 with `repo-config add/update ... --summary "Service responsibilities"`; pass
-`--summary ""` to clear it. Show/list, exports, backend transfers and workspace
-plans include the text. A workspace reads the shared Repo summary rather than
+`--summary ""` to clear it. Show/list, exports, backend transfers and Workbox
+plans include the text. A Workbox reads the shared Repo summary rather than
 storing another copy. Summaries are maintained navigation hints, not verified
 code or deployment evidence. Older import packages may omit the field.
 
@@ -277,15 +294,15 @@ access. Team keys follow the same lowercase name rules as repository names.
 Duplicate keys are rejected. Team deletion fails while any repository references it.
 Renaming a team's display name preserves its ID and all memberships.
 
-Repo show/list expose team keys; workspace plans resolve current team details
-through the repository. Workspaces do not store separate ownership. Export/import
+Repo show/list expose team keys; Workbox plans resolve current team details
+through the repository. Workbox instances do not store separate ownership. Export/import
 uses optional `team_configs` plus repository `teams` arrays of keys, never local
 team IDs. Packages must include all referenced teams. Import preserves existing
 local IDs, allocates IDs for new teams, skips identical content, and atomically
 rejects conflicts (including display-name or membership differences). Older
 packages without teams remain supported and describe unassigned repositories.
 
-The next write upgrades database schema 1 or 2 to schema 3; reads remain read-only.
+The next write upgrades database schemas 1–3 to schema 4; reads remain read-only.
 All clients sharing the database must be upgraded before writes, since older
-binaries cannot read schema 3. Existing repository/workspace IDs and references
+binaries cannot read schema 4. Existing repository/Workbox IDs and references
 are retained. The ignored private catalog is not automatically assigned to teams.

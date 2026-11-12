@@ -5,16 +5,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 )
 
 type app struct {
-	store     configStore
-	gitRunner gitRunner
+	publishInstance func(*os.Root, string, string) error
+	gitlabTransport http.RoundTripper
+	store           configStore
+	gitRunner       gitRunner
 }
 type command struct {
+	repos                []string
+	overrides            map[string]string
 	entity, action, name string
 	flags                map[string]string
 }
@@ -28,7 +34,10 @@ const usage = `Usage: workbox COMMAND [--format text|json]
 
   init [--backend sqlite|mysql] [--mysql-dsn-file FILE]
        [--install-skill | --skip-skill] [--skill-path DIR]
+       [--gitlab-host HOST --gitlab-token-file FILE]
        [--copy-config | --no-copy-config]
+  auth gitlab set --host HOST --token-file FILE
+  auth gitlab alias set --ssh-host SSH_HOST --host HOST
   repo-config add NAME --url URL --default-branch BRANCH [--summary TEXT] [--teams KEY1,KEY2]
   repo-config list [--team KEY]
   repo-config show NAME
@@ -41,16 +50,23 @@ const usage = `Usage: workbox COMMAND [--format text|json]
   team-config remove KEY
   repo-config add-team NAME --team KEY
   repo-config remove-team NAME --team KEY
-  workspace-config add NAME [--repos-file FILE] [--init-script-file FILE]
-  workspace-config list
-  workspace-config show NAME
-  workspace-config update NAME [--repos-file FILE] [--init-script-file FILE]
-  workspace-config remove NAME
+  workbox-config add NAME [--docs-file FILE] [--repos-file FILE] [--init-script-file FILE]
+  workbox-config list
+  workbox-config show NAME
+  workbox-config update NAME [--docs-file FILE] [--repos-file FILE] [--init-script-file FILE]
+  workbox-config remove NAME
   config export --output FILE
   config import --input FILE
-  workspace plan --config NAME --path DIR
-  workspace create --config NAME --path DIR
-  workspace status --path DIR
+  plan --config NAME --path DIR
+  create --config NAME --path DIR
+  search --path DIR --query TERM [--repo NAME]... [--ref NAME=REF]...
+  read --path DIR --repo NAME --file PATH [--ref REF] [--lines START-END]
+  status --path DIR
+  skill-config add --git-url URL [--subdir DIR] [--branch NAME | --commit SHA]
+  skill-config add --installer npx-skills URL --skill NAME
+  skill-config update NAME (same source options as add)
+  skill-config list | show NAME | remove NAME
+  workbox-config add-skill|remove-skill NAME SKILL
   skill install [--path SKILLS_DIRECTORY]
   uninstall [--dry-run] [--skill-path SKILLS_DIRECTORY]
   --help
@@ -58,13 +74,14 @@ const usage = `Usage: workbox COMMAND [--format text|json]
 
 Every command supports --format json; text is the default.
 Scripts are stored and returned to the caller, never executed.
-Workspace create writes a root AGENTS.md pointing agents to the global workbox skill.
+Create writes .workbox/repos.json and the configured documents and Skills.
+Plan and create do not check out business repositories. target_dir is the requested checkout location.
 Skill install copies the bundled skill to ~/.agents/skills/workbox by default.
 --path selects a different skills parent directory. Existing differences are never overwritten.
-Uninstall removes the CLI and unmodified companion skills; configuration and workspaces are preserved.
+Uninstall removes the CLI and unmodified companion skills; configuration and Workbox instances are preserved.
 --dry-run previews uninstall. --skill-path locates a custom skill installed by an older version.
 
-Run workbox init before configuration, export/import, or workspace plan/create commands.
+Run workbox init before configuration, export/import, or plan/create commands.
 Interactive init requires a terminal. Scripts must specify --backend and exactly one Skill choice.
 Settings: settings.json under WORKBOX_CONFIG_HOME, otherwise ${XDG_CONFIG_HOME:-~/.config}/workbox.
 Relative config roots resolve from each invocation's working directory; prefer absolute paths.
@@ -117,9 +134,23 @@ func parse(args []string) (command, *Failure) {
 	if len(args) == 0 {
 		return c, bad
 	}
+	// Accept the former command spellings for existing scripts.
+	if args[0] == "workspace" && len(args) >= 2 {
+		switch args[1] {
+		case "plan", "create", "status":
+			args = args[1:]
+		default:
+			return c, bad
+		}
+	}
 	c.entity = args[0]
+	if c.entity == "workspace-config" {
+		c.entity = "workbox-config"
+	}
 	start := 1
-	if c.entity != "uninstall" && c.entity != "init" {
+	switch c.entity {
+	case "uninstall", "init", "plan", "create", "status", "search", "read":
+	default:
 		if len(args) < 2 {
 			return c, bad
 		}
@@ -130,14 +161,47 @@ func parse(args []string) (command, *Failure) {
 	required := []string{}
 	needsName := false
 	switch c.entity {
+	case "auth":
+		if c.action != "gitlab" || len(args) < 3 {
+			return c, bad
+		}
+		c.action = args[2]
+		start = 3
+		switch c.action {
+		case "set":
+			required = []string{"host", "token-file"}
+		case "alias":
+			if len(args) < 4 || args[3] != "set" {
+				return c, bad
+			}
+			start = 4
+			required = []string{"host", "ssh-host"}
+		default:
+			return c, bad
+		}
+		for _, key := range required {
+			allowed[key] = true
+		}
 	case "init":
-		for _, name := range []string{"backend", "mysql-dsn-file", "install-skill", "skip-skill", "skill-path", "copy-config", "no-copy-config"} {
+		for _, name := range []string{"gitlab-host", "gitlab-token-file", "backend", "mysql-dsn-file", "install-skill", "skip-skill", "skill-path", "copy-config", "no-copy-config"} {
 			allowed[name] = true
 		}
 	case "uninstall":
 		allowed["dry-run"] = true
 		allowed["skill-path"] = true
-	case "repo-config", "workspace-config", "team-config":
+	case "skill-config":
+		switch c.action {
+		case "list":
+		case "show", "remove":
+			needsName = true
+		case "add", "update":
+			for _, k := range []string{"git-url", "subdir", "branch", "commit", "installer", "skill"} {
+				allowed[k] = true
+			}
+		default:
+			return c, bad
+		}
+	case "repo-config", "workbox-config", "team-config":
 		switch c.action {
 		case "add", "update":
 			if c.entity == "repo-config" {
@@ -155,6 +219,7 @@ func parse(args []string) (command, *Failure) {
 					required = []string{"name"}
 				}
 			} else {
+				allowed["docs-file"] = true
 				allowed["repos-file"] = true
 				allowed["init-script-file"] = true
 			}
@@ -164,6 +229,10 @@ func parse(args []string) (command, *Failure) {
 		case "list":
 			if c.entity == "repo-config" {
 				allowed["team"] = true
+			}
+		case "add-skill", "remove-skill":
+			if c.entity != "workbox-config" {
+				return c, bad
 			}
 		case "add-team", "remove-team":
 			if c.entity != "repo-config" {
@@ -186,18 +255,25 @@ func parse(args []string) (command, *Failure) {
 		default:
 			return c, bad
 		}
-	case "workspace":
-		switch c.action {
-		case "plan", "create":
-			required = []string{"config", "path"}
-			allowed["config"] = true
-			allowed["path"] = true
-		case "status":
-			required = []string{"path"}
-			allowed["path"] = true
-		default:
-			return c, bad
+	case "plan", "create":
+		required = []string{"config", "path"}
+		allowed["config"] = true
+		allowed["path"] = true
+	case "search", "read":
+		allowed["path"] = true
+		allowed["repo"] = true
+		allowed["ref"] = true
+		if c.entity == "search" {
+			required = []string{"path", "query"}
+			allowed["query"] = true
+		} else {
+			required = []string{"path", "repo", "file"}
+			allowed["file"] = true
+			allowed["lines"] = true
 		}
+	case "status":
+		required = []string{"path"}
+		allowed["path"] = true
 	case "skill":
 		if c.action != "install" {
 			return c, bad
@@ -249,9 +325,59 @@ func parse(args []string) (command, *Failure) {
 				}
 				val = args[i]
 			}
+			if c.entity == "search" && flag == "repo" {
+				if validateName(val) != nil || slices.Contains(c.repos, val) {
+					return c, bad
+				}
+				c.repos = append(c.repos, val)
+				continue
+			}
+			if c.entity == "search" && flag == "ref" {
+				name, ref, ok := strings.Cut(val, "=")
+				if !ok || ref == "" || validateName(name) != nil {
+					return c, bad
+				}
+				if c.overrides == nil {
+					c.overrides = map[string]string{}
+				}
+				if _, ok := c.overrides[name]; ok {
+					return c, bad
+				}
+				c.overrides[name] = ref
+				continue
+			}
 			c.flags[flag] = val
 		} else {
 			positional = append(positional, arg)
+		}
+	}
+	if c.entity == "search" && strings.TrimSpace(c.flags["query"]) == "" {
+		return c, bad
+	}
+	if c.entity == "workbox-config" && (c.action == "add-skill" || c.action == "remove-skill") {
+		if len(positional) != 2 {
+			return c, bad
+		}
+		c.name = positional[0]
+		c.flags["skill"] = positional[1]
+		positional = nil
+	}
+	if c.entity == "skill-config" && (c.action == "add" || c.action == "update") {
+		if c.action == "update" {
+			if len(positional) < 1 {
+				return c, bad
+			}
+			c.name = positional[0]
+			positional = positional[1:]
+		}
+		if _, ok := c.flags["installer"]; ok {
+			if c.flags["installer"] != "npx-skills" || len(positional) != 1 || len(c.flags) != 2 || c.flags["skill"] == "" {
+				return c, bad
+			}
+			c.flags["source"] = positional[0]
+			positional = nil
+		} else if c.flags["git-url"] == "" || c.flags["skill"] != "" {
+			return c, bad
 		}
 	}
 	if needsName {
@@ -272,7 +398,7 @@ func parse(args []string) (command, *Failure) {
 			return c, e
 		}
 	}
-	if (c.entity == "repo-config" || c.entity == "workspace-config" || c.entity == "team-config") && c.action == "update" && len(c.flags) == 0 {
+	if (c.entity == "repo-config" || c.entity == "workbox-config" || c.entity == "team-config") && c.action == "update" && len(c.flags) == 0 {
 		return c, bad
 	}
 	return c, nil
@@ -280,6 +406,9 @@ func parse(args []string) (command, *Failure) {
 func (a *app) execute(ctx context.Context, c command) (any, *Failure) {
 	if ctx.Err() != nil {
 		return nil, fail("INTERRUPTED", "Operation interrupted")
+	}
+	if c.entity == "auth" {
+		return configureGitlab(c)
 	}
 	if c.entity == "skill" {
 		return installSkill(ctx, c.flags)
@@ -291,7 +420,10 @@ func (a *app) execute(ctx context.Context, c command) (any, *Failure) {
 		}
 		return uninstall(ctx, binary, os.Args[0], c.flags)
 	}
-	if c.entity == "workspace" && c.action == "status" {
+	if c.entity == "search" || c.entity == "read" {
+		return a.remoteCode(ctx, c)
+	}
+	if c.entity == "status" {
 		return a.status(ctx, c.flags["path"])
 	}
 	if a.store == nil {
@@ -302,7 +434,12 @@ func (a *app) execute(ctx context.Context, c command) (any, *Failure) {
 		a.store = backend
 	}
 	switch c.entity {
-	case "repo-config", "workspace-config", "team-config":
+	case "skill-config":
+		return a.skillCatalog(ctx, c)
+	case "repo-config", "workbox-config", "team-config":
+		if c.action == "add-skill" || c.action == "remove-skill" {
+			return a.selectSkill(ctx, c)
+		}
 		if c.entity == "team-config" {
 			return a.teamCRUD(ctx, c)
 		}
@@ -316,7 +453,7 @@ func (a *app) execute(ctx context.Context, c command) (any, *Failure) {
 		}
 		return a.importFile(ctx, c.flags["input"])
 	default:
-		return a.prepare(ctx, c.flags["config"], c.flags["path"], c.action == "create")
+		return a.prepare(ctx, c.flags["config"], c.flags["path"], c.entity == "create")
 	}
 }
 
@@ -334,7 +471,7 @@ func (a *app) run(ctx context.Context, args []string, stdout, stderr io.Writer, 
 			ver = ver || arg == "--version"
 		}
 		if help {
-			data = map[string]any{"usage": usage, "commands": []string{"init", "repo-config add/list/show/update/remove", "team-config add/list/show/update/remove", "workspace-config add/list/show/update/remove", "config export/import", "workspace plan/create/status", "skill install", "uninstall"}}
+			data = map[string]any{"usage": usage, "commands": []string{"init", "repo-config add/list/show/update/remove", "team-config add/list/show/update/remove", "workbox-config add/list/show/update/remove/add-skill/remove-skill", "config export/import", "plan", "create", "status", "search", "read", "auth gitlab set/alias set", "skill-config add/list/show/update/remove", "skill install", "uninstall"}}
 		} else if ver && len(clean) == 1 {
 			data = map[string]string{"program": "workbox", "version": version}
 		} else {
@@ -349,7 +486,8 @@ func (a *app) run(ctx context.Context, args []string, stdout, stderr io.Writer, 
 			}
 		}
 	}
-	if ctx.Err() != nil && (e == nil || e.Code != "INTERRUPTED") {
+	_, published := data.(publishedInstance)
+	if !published && ctx.Err() != nil && (e == nil || e.Code != "INTERRUPTED") {
 		interrupted := fail("INTERRUPTED", "Operation interrupted")
 		interrupted.Data = data
 		if e != nil {

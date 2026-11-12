@@ -72,7 +72,7 @@ func TestSQLiteResumesEmptyFile(t *testing.T) {
 	}
 	var out, diag bytes.Buffer
 	a := &app{store: s}
-	if code := a.run(context.Background(), []string{"workspace-config", "add", "example", "--format", "json"}, &out, &diag, "test"); code != 0 {
+	if code := a.run(context.Background(), []string{"workbox-config", "add", "example", "--format", "json"}, &out, &diag, "test"); code != 0 {
 		t.Fatalf("recovery command failed: %s %s", out.String(), diag.String())
 	}
 	if len(storeRead(t, s).Workspaces) != 1 {
@@ -244,7 +244,7 @@ func TestBackendSelectionAndCredentialRedaction(t *testing.T) {
 func TestLocalCommandsDoNotResolveBackend(t *testing.T) {
 	a, home := skillApp(t)
 	t.Setenv("WORKBOX_DB", "unknown")
-	for _, args := range [][]string{{"--help"}, {"--version"}, {"workspace", "status", "--path", home}, {"skill", "install", "--path", filepath.Join(home, "skills")}} {
+	for _, args := range [][]string{{"--help"}, {"--version"}, {"status", "--path", home}, {"skill", "install", "--path", filepath.Join(home, "skills")}} {
 		skillCall(t, a, 0, args...)
 	}
 	if a.store != nil {
@@ -270,7 +270,7 @@ func TestBusinessUsesStorageInterface(t *testing.T) {
 	s := &memoryConfigStore{value: emptySnapshot()}
 	a := &app{store: s}
 	var out, diag bytes.Buffer
-	if code := a.run(context.Background(), []string{"workspace-config", "add", "example", "--format", "json"}, &out, &diag, "test"); code != 0 {
+	if code := a.run(context.Background(), []string{"workbox-config", "add", "example", "--format", "json"}, &out, &diag, "test"); code != 0 {
 		t.Fatalf("%s %s", out.String(), diag.String())
 	}
 	if len(s.value.Workspaces) != 1 || s.value.Workspaces["example"].ID == "" {

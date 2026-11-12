@@ -15,7 +15,7 @@ func TestRepoSummaryLifecycle(t *testing.T) {
 		t.Fatal(r)
 	}
 	f.workspace([]Ref{{Repo: "api", Target: "api"}}, "")
-	plan := object(f.call(0, "workspace", "plan", "--config", "analysis", "--path", filepath.Join(f.root, "work"))["data"])
+	plan := object(f.call(0, "plan", "--config", "analysis", "--path", filepath.Join(f.root, "work"))["data"])
 	if object(array(plan["repos"])[0])["summary"] != summary {
 		t.Fatal(plan)
 	}
@@ -73,7 +73,7 @@ func TestSQLiteSummaryMigrationReadOnly(t *testing.T) {
 		t.Fatal("read migrated schema", version, err)
 	}
 	f.call(0, "repo-config", "update", "api", "--summary", "new")
-	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 3 {
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 4 {
 		t.Fatal("write did not migrate", version, err)
 	}
 	r = object(object(f.call(0, "repo-config", "show", "api")["data"])["repo_config"])

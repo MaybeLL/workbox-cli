@@ -132,13 +132,17 @@ func (f *fixture) workspace(refs []Ref, script string) map[string]any {
 	raw, _ := json.Marshal(refs)
 	repos := f.file("repos.json", string(raw))
 	body := f.file("init.sh", script)
-	return object(object(f.call(0, "workspace-config", "add", "analysis", "--repos-file", repos, "--init-script-file", body)["data"])["workspace_config"])
+	return object(object(f.call(0, "workbox-config", "add", "analysis", "--repos-file", repos, "--init-script-file", body)["data"])["workspace_config"])
 }
-func (f *fixture) create() string {
+func (f *fixture) createWithCheckout() string {
 	f.repo("api")
 	f.workspace([]Ref{{Repo: "api", Target: "repos/api"}}, "")
 	root := filepath.Join(f.root, "workspace")
-	f.call(0, "workspace", "create", "--config", "analysis", "--path", root)
+	f.call(0, "create", "--config", "analysis", "--path", root)
+	f.git(root, "clone", "--branch", "develop", "https://example.test/api.git", "repos/api")
+	if err := os.Mkdir(filepath.Join(root, ".workbox", "worktree"), 0755); err != nil {
+		f.t.Fatal(err)
+	}
 	return root
 }
 func errorCode(result map[string]any) string { return object(result["error"])["code"].(string) }
@@ -160,29 +164,18 @@ func TestEndToEnd(t *testing.T) {
 	script := "#!/bin/sh\nprintf '%s\\n' ready > READY.txt\n"
 	w := f.workspace([]Ref{{Repo: "api", Target: "repos/api"}}, script)
 	target := filepath.Join(f.root, "workspace")
-	plan := object(f.call(0, "workspace", "plan", "--config", "analysis", "--path", target)["data"])
+	plan := object(f.call(0, "plan", "--config", "analysis", "--path", target)["data"])
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
 		t.Fatal("plan wrote target")
 	}
-	if object(object(array(plan["repos"])[0])["checks"])["ok"] != true {
-		t.Fatal(plan)
-	}
-	prepared := object(f.call(0, "workspace", "create", "--config", "analysis", "--path", target)["data"])
-	repo := object(array(prepared["repos"])[0])
-	if prepared["state"] != "prepared" || prepared["init_script"] != script || repo["branch"] != "develop" || len(repo["commit"].(string)) != 40 {
+	prepared := object(f.call(0, "create", "--config", "analysis", "--path", target)["data"])
+	if prepared["state"] != "prepared" || prepared["init_script"] != script || !reflect.DeepEqual(plan["repos"], prepared["repos"]) {
 		t.Fatal(prepared)
 	}
-	base := filepath.Join(target, "repos", "api")
-	if count := f.git(base, "rev-list", "--count", "HEAD"); count != "2" {
-		t.Fatalf("history truncated: %s", count)
-	}
-	if !realDirectory(filepath.Join(target, ".workbox", "worktree")) {
-		t.Fatal("missing worktree directory")
-	}
+	assertAbsent(t, filepath.Join(target, "repos"))
 	if _, err := os.Stat(filepath.Join(target, "READY.txt")); !os.IsNotExist(err) {
 		t.Fatal("CLI executed script")
 	}
-	before := f.git(base, "rev-parse", "HEAD")
 	tmp := filepath.Join(target, ".workbox", "tmp")
 	if err := os.Mkdir(tmp, 0700); err != nil {
 		t.Fatal(err)
@@ -198,11 +191,11 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("script: %v %s", err, out)
 	}
 	artifact, _ := os.ReadFile(filepath.Join(target, "READY.txt"))
-	if string(artifact) != "ready\n" || f.git(base, "rev-parse", "HEAD") != before || f.git(base, "status", "--porcelain") != "" {
+	if string(artifact) != "ready\n" {
 		t.Fatal("artifact or baseline verification failed")
 	}
-	status := object(f.call(0, "workspace", "status", "--path", target)["data"])
-	if object(array(status["repos"])[0])["clean"] != true {
+	status := object(f.call(0, "status", "--path", target)["data"])
+	if len(array(status["repos"])) != 0 {
 		t.Fatal(status)
 	}
 	output := filepath.Join(f.root, "package.json")
@@ -216,7 +209,7 @@ func TestEndToEnd(t *testing.T) {
 	if len(array(object(added["added"])["repo_configs"])) != 1 {
 		t.Fatal(added)
 	}
-	newW := object(object(f.call(0, "workspace-config", "show", "analysis")["data"])["workspace_config"])
+	newW := object(object(f.call(0, "workbox-config", "show", "analysis")["data"])["workspace_config"])
 	newR := object(object(f.call(0, "repo-config", "show", "api")["data"])["repo_config"])
 	if newW["id"] == w["id"] || newR["id"] == r["id"] {
 		t.Fatal("import reused external IDs")
@@ -243,13 +236,13 @@ func TestEndToEnd(t *testing.T) {
 		}
 		tables = append(tables, name)
 	}
-	if !reflect.DeepEqual(tables, []string{"repo_config", "team_config", "workspace_config"}) {
+	if !reflect.DeepEqual(tables, []string{"repo_config", "skill_config", "team_config", "workspace_config"}) {
 		t.Fatal(tables)
 	}
 }
 func TestMissingDBAndParser(t *testing.T) {
 	f := setup(t)
-	for _, entity := range []string{"repo-config", "workspace-config"} {
+	for _, entity := range []string{"repo-config", "workbox-config"} {
 		f.call(0, entity, "list")
 		for _, action := range []string{"show", "update", "remove"} {
 			want := "CONFIG_NOT_FOUND"
@@ -263,23 +256,37 @@ func TestMissingDBAndParser(t *testing.T) {
 	}
 	f.call(0, "config", "export", "--output", filepath.Join(f.root, "empty.json"))
 	for _, action := range []string{"plan", "create"} {
-		f.call(2, "workspace", action, "--config", "missing", "--path", filepath.Join(f.root, "new"))
+		f.call(2, action, "--config", "missing", "--path", filepath.Join(f.root, "new"))
 	}
-	for _, args := range [][]string{{"unknown"}, {"repo-config", "add", "api"}, {"workspace", "status", "--unknown", "x"}, {"config", "export"}} {
+	for _, args := range [][]string{{"unknown"}, {"repo-config", "add", "api"}, {"status", "--unknown", "x"}, {"config", "export"}} {
 		if errorCode(f.call(2, args...)) != "INVALID_ARGUMENTS" {
 			t.Fatal(args)
 		}
 	}
-	for _, entity := range []string{"repo-config", "workspace-config", "workspace", "config"} {
+	for _, entity := range []string{"repo-config", "workbox-config", "workspace", "config"} {
 		f.call(0, entity, "--help")
 	}
 	f.call(0, "--help")
 	f.call(0, "--version")
-	f.call(0, "workspace", "status", "--path", f.remotes)
+	f.call(0, "status", "--path", f.remotes)
 	if _, err := os.Stat(f.sqlite.path); !os.IsNotExist(err) {
 		t.Fatal("read-only command initialized DB")
 	}
 }
+func TestFormerCommandSpellings(t *testing.T) {
+	f := setup(t)
+	f.call(0, "workspace-config", "add", "legacy")
+	path := filepath.Join(f.root, "instance")
+	for _, action := range []string{"plan", "create", "status"} {
+		args := []string{"workspace", action, "--path", path}
+		if action != "status" {
+			args = append(args, "--config", "legacy")
+		}
+		f.call(0, args...)
+	}
+	f.call(0, "workbox-config", "show", "legacy")
+}
+
 func TestBranchesAndUnverifiableRemote(t *testing.T) {
 	f := setup(t)
 	for _, branch := range []string{"", "  ", "bad..name", "HEAD", "@{-1}", "-branch", "tag-only", "missing"} {
@@ -337,37 +344,37 @@ func TestConfigUpdatesAndReferences(t *testing.T) {
 		t.Fatal(result)
 	}
 	f.call(2, "repo-config", "update", "api")
-	f.call(2, "workspace-config", "update", "analysis")
+	f.call(2, "workbox-config", "update", "analysis")
 	updated := object(object(f.call(0, "repo-config", "update", "api", "--default-branch", "develop")["data"])["repo_config"])
 	if updated["id"] != original["id"] {
 		t.Fatal("ID changed")
 	}
-	before := object(object(f.call(0, "workspace-config", "show", "analysis")["data"])["workspace_config"])
+	before := object(object(f.call(0, "workbox-config", "show", "analysis")["data"])["workspace_config"])
 	for _, contents := range []string{`[{"repo":"missing","target_dir":"repos/x"}]`, `[{"repo":"api","target_dir":"repos/x","unknown":1}]`, `[{"repo":"api","repo":"api","target_dir":"repos/x"}]`, `null`} {
 		file := f.file("bad.json", contents)
-		f.call(2, "workspace-config", "update", "analysis", "--repos-file", file)
+		f.call(2, "workbox-config", "update", "analysis", "--repos-file", file)
 	}
-	f.call(2, "workspace-config", "update", "analysis", "--init-script-file", f.file("bad.sh", "echo bad"))
-	f.call(2, "workspace-config", "update", "analysis", "--init-script-file", f.file("bad.bin", string([]byte{255})))
-	f.call(1, "workspace-config", "update", "analysis", "--repos-file", filepath.Join(f.root, "absent"))
-	after := object(object(f.call(0, "workspace-config", "show", "analysis")["data"])["workspace_config"])
+	f.call(2, "workbox-config", "update", "analysis", "--init-script-file", f.file("bad.sh", "echo bad"))
+	f.call(2, "workbox-config", "update", "analysis", "--init-script-file", f.file("bad.bin", string([]byte{255})))
+	f.call(1, "workbox-config", "update", "analysis", "--repos-file", filepath.Join(f.root, "absent"))
+	after := object(object(f.call(0, "workbox-config", "show", "analysis")["data"])["workspace_config"])
 	if !reflect.DeepEqual(before, after) {
 		t.Fatal("invalid file changed config")
 	}
-	f.call(0, "workspace-config", "update", "analysis", "--init-script-file", f.file("empty.sh", ""))
-	shown := object(object(f.call(0, "workspace-config", "show", "analysis")["data"])["workspace_config"])
+	f.call(0, "workbox-config", "update", "analysis", "--init-script-file", f.file("empty.sh", ""))
+	shown := object(object(f.call(0, "workbox-config", "show", "analysis")["data"])["workspace_config"])
 	if shown["init_script"] != "" || len(array(shown["repos"])) != 1 {
 		t.Fatal(shown)
 	}
-	f.call(0, "workspace-config", "update", "analysis", "--repos-file", f.file("empty.json", "[]"))
+	f.call(0, "workbox-config", "update", "analysis", "--repos-file", f.file("empty.json", "[]"))
 	f.call(0, "repo-config", "remove", "api")
-	f.call(0, "workspace-config", "remove", "analysis")
+	f.call(0, "workbox-config", "remove", "analysis")
 }
 func TestScriptBytesAndExistingTargets(t *testing.T) {
 	f := setup(t)
 	script := "#!/bin/sh\r\n# café\r\nprintf ready\r\n"
 	f.workspace([]Ref{}, script)
-	shown := object(object(f.call(0, "workspace-config", "show", "analysis")["data"])["workspace_config"])
+	shown := object(object(f.call(0, "workbox-config", "show", "analysis")["data"])["workspace_config"])
 	if shown["init_script"] != script {
 		t.Fatal("script bytes changed")
 	}
@@ -376,7 +383,7 @@ func TestScriptBytesAndExistingTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, action := range []string{"plan", "create"} {
-		if errorCode(f.call(2, "workspace", action, "--config", "analysis", "--path", target)) != "TARGET_EXISTS" {
+		if errorCode(f.call(2, action, "--config", "analysis", "--path", target)) != "TARGET_EXISTS" {
 			t.Fatal(action)
 		}
 	}
@@ -384,9 +391,9 @@ func TestScriptBytesAndExistingTargets(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
-	f.call(2, "workspace", "create", "--config", "analysis", "--path", link)
-	f.call(2, "workspace", "create", "--config", "analysis", "--path", filepath.Join(f.root, "missing", "new"))
-	result := object(f.call(0, "workspace", "create", "--config", "analysis", "--path", filepath.Join(f.root, "new"))["data"])
+	f.call(2, "create", "--config", "analysis", "--path", link)
+	f.call(2, "create", "--config", "analysis", "--path", filepath.Join(f.root, "missing", "new"))
+	result := object(f.call(0, "create", "--config", "analysis", "--path", filepath.Join(f.root, "new"))["data"])
 	if result["state"] != "prepared" || result["init_script"] != script || len(array(result["repos"])) != 0 {
 		t.Fatal(result)
 	}
@@ -425,7 +432,7 @@ func TestOptimisticUpdateAndImport(t *testing.T) {
 				if errorCode(f.call(2, "config", "import", "--input", f.file("import.json", string(raw)))) != "CONFIG_CONFLICT" {
 					t.Fatal("stale import")
 				}
-				f.call(2, "workspace-config", "show", "new")
+				f.call(2, "workbox-config", "show", "new")
 			}
 			current := object(object(f.call(0, "repo-config", "show", "api")["data"])["repo_config"])
 			if current["default_branch"] != "concurrent" {
@@ -434,65 +441,22 @@ func TestOptimisticUpdateAndImport(t *testing.T) {
 		})
 	}
 }
-func TestSnapshotChangesDuringClone(t *testing.T) {
+func TestSnapshotChangesDuringCreate(t *testing.T) {
 	f := setup(t)
 	f.repo("api")
 	f.workspace([]Ref{{Repo: "api", Target: "repos/api"}}, "#!/bin/sh\necho old\n")
 	target := filepath.Join(f.root, "new")
-	f.call(0, "workspace", "plan", "--config", "analysis", "--path", target)
-	f.call(0, "workspace-config", "update", "analysis", "--init-script-file", f.file("new.sh", "#!/bin/sh\necho snapshot\n"))
-	source := filepath.Join(f.root, "api-source")
-	if err := os.WriteFile(filepath.Join(source, "third"), []byte("new"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	f.git(source, "add", ".")
-	f.git(source, "commit", "-m", "Third")
-	f.git(source, "push", filepath.Join(f.remotes, "api.git"), "develop")
-	commit := f.git(source, "rev-parse", "HEAD")
+	f.call(0, "plan", "--config", "analysis", "--path", target)
+	f.call(0, "workbox-config", "update", "analysis", "--init-script-file", f.file("new.sh", "#!/bin/sh\necho snapshot\n"))
 	f.app.gitRunner = hookedGit{gitCLI{}, func(args []string) *Failure {
-		if args[0] == "clone" {
+		if args[0] == "check-ref-format" {
 			f.sql("UPDATE workspace_config SET init_script=? WHERE name='analysis'", "#!/bin/sh\necho newer\n")
 		}
 		return nil
 	}}
-	result := object(f.call(0, "workspace", "create", "--config", "analysis", "--path", target)["data"])
-	if result["init_script"] != "#!/bin/sh\necho snapshot\n" || object(array(result["repos"])[0])["commit"] != commit {
+	result := object(f.call(0, "create", "--config", "analysis", "--path", target)["data"])
+	if result["init_script"] != "#!/bin/sh\necho snapshot\n" {
 		t.Fatal(result)
-	}
-}
-func TestPartialCloneFailureAndCancellation(t *testing.T) {
-	for _, code := range []string{"GIT_ERROR", "INTERRUPTED"} {
-		t.Run(code, func(t *testing.T) {
-			f := setup(t)
-			for _, name := range []string{"worker", "third"} {
-				f.remote(name)
-			}
-			for _, name := range []string{"api", "worker", "third"} {
-				f.repo(name)
-			}
-			f.workspace([]Ref{{Repo: "api", Target: "repos/api"}, {Repo: "worker", Target: "repos/worker"}, {Repo: "third", Target: "repos/third"}}, "")
-			f.app.gitRunner = hookedGit{gitCLI{}, func(args []string) *Failure {
-				if args[0] == "clone" && strings.Contains(strings.Join(args, " "), "worker.git") {
-					return fail(code, "Injected failure")
-				}
-				return nil
-			}}
-			exit := 1
-			if code == "INTERRUPTED" {
-				exit = 130
-			}
-			target := filepath.Join(f.root, "partial")
-			result := object(f.call(exit, "workspace", "create", "--config", "analysis", "--path", target)["data"])
-			repos := array(result["repos"])
-			for i, want := range []string{"completed", "failed", "not_attempted"} {
-				if object(repos[i])["state"] != want {
-					t.Fatal(result)
-				}
-			}
-			if !realDirectory(filepath.Join(target, "repos", "api", ".git")) {
-				t.Fatal("completed clone removed")
-			}
-		})
 	}
 }
 func TestDirectoryRaces(t *testing.T) {
@@ -510,7 +474,7 @@ func TestDirectoryRaces(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "repos")); err != nil {
 		t.Fatal(err)
 	}
-	if e := tree.parents("repos/api"); e == nil {
+	if e := tree.mkdir("repos"); e == nil {
 		t.Fatal("unexpected link accepted")
 	}
 	entries, _ := os.ReadDir(outside)
@@ -536,7 +500,7 @@ func TestImportValidationAndAtomicity(t *testing.T) {
 	}{
 		{"conflict", strings.Replace(base, `"init_script":""`, `"init_script":"#!/bin/sh\necho conflict"`, 1), "CONFIG_CONFLICT", 2},
 		{"unknown", strings.Replace(base, `"name":"api"`, `"unknown":1,"name":"api"`, 1), "CONFIG_INVALID", 2},
-		{"unknown_version", strings.Replace(base, `"schema_version":1`, `"schema_version":2`, 1), "SCHEMA_UNSUPPORTED", 2},
+		{"unknown_version", strings.Replace(base, `"schema_version":1`, `"schema_version":99`, 1), "SCHEMA_UNSUPPORTED", 2},
 		{"bool_version", strings.Replace(base, `"schema_version":1`, `"schema_version":true`, 1), "SCHEMA_UNSUPPORTED", 2},
 		{"duplicate_field", strings.Replace(base, `"schema_version":1`, `"schema_version":1,"schema_version":1`, 1), "CONFIG_INVALID", 2},
 		{"remote_failure", strings.Replace(base, `"repo_configs":[`, `"repo_configs":[{"name":"offline","source_url":"https://example.test/offline.git","default_branch":"develop"},`, 1), "REMOTE_UNVERIFIABLE", 1},
@@ -597,7 +561,7 @@ func TestSchemaCorruptionAndLegacyDatabase(t *testing.T) {
 	if errorCode(f.call(2, "repo-config", "list")) != "SCHEMA_UNSUPPORTED" {
 		t.Fatal("unsupported schema")
 	}
-	f.call(0, "workspace", "status", "--path", f.remotes)
+	f.call(0, "status", "--path", f.remotes)
 	if err := os.WriteFile(f.sqlite.path, []byte("not a database"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -612,7 +576,7 @@ func TestSchemaCorruptionAndLegacyDatabase(t *testing.T) {
 	f.sql("PRAGMA user_version=1")
 	f.sql("INSERT INTO repo_config VALUES (?,?,?,?)", "legacy-repo", "api", "https://example.test/api.git", "develop")
 	f.sql("INSERT INTO workspace_config VALUES (?,?,?,?)", "legacy-workspace", "analysis", `[{"repo_config_id":"legacy-repo","target_dir":"repos/api"}]`, "#!/bin/sh\r\necho café\r\n")
-	shown := object(object(f.call(0, "workspace-config", "show", "analysis")["data"])["workspace_config"])
+	shown := object(object(f.call(0, "workbox-config", "show", "analysis")["data"])["workspace_config"])
 	if shown["id"] != "legacy-workspace" || object(array(shown["repos"])[0])["repo"] != "api" {
 		t.Fatal(shown)
 	}
@@ -674,17 +638,15 @@ func TestRootAppearingAfterPreflight(t *testing.T) {
 	f.repo("api")
 	f.workspace([]Ref{{Repo: "api", Target: "repos/api"}}, "")
 	target := filepath.Join(f.root, "racing")
-	f.app.gitRunner = hookedGit{gitCLI{}, func(args []string) *Failure {
-		if args[0] == "ls-remote" {
-			if err := os.Mkdir(target, 0755); err != nil {
-				t.Fatal(err)
-			}
-		}
-		return nil
-	}}
-	response := f.call(2, "workspace", "create", "--config", "analysis", "--path", target)
-	if errorCode(response) != "TARGET_EXISTS" || object(array(object(response["data"])["repos"])[0])["state"] != "not_attempted" {
-		t.Fatal(response)
+	path, e := destination(target)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if err := os.Mkdir(target, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if _, e := newTree(path); e == nil || e.Code != "TARGET_EXISTS" {
+		t.Fatal(e)
 	}
 	children, _ := os.ReadDir(target)
 	if len(children) != 0 {
@@ -704,20 +666,18 @@ func TestParentLinkedAfterPreflightDoesNotEscape(t *testing.T) {
 	if err := os.Mkdir(outside, 0755); err != nil {
 		t.Fatal(err)
 	}
-	f.app.gitRunner = hookedGit{gitCLI{}, func(args []string) *Failure {
-		if args[0] == "ls-remote" {
-			if err := os.Rename(parent, parent+"-old"); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.Symlink(outside, parent); err != nil {
-				t.Fatal(err)
-			}
-		}
-		return nil
-	}}
-	response := f.call(2, "workspace", "create", "--config", "analysis", "--path", filepath.Join(parent, "new"))
-	if errorCode(response) != "PATH_INVALID" {
-		t.Fatal(response)
+	path, e := destination(filepath.Join(parent, "new"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	if err := os.Rename(parent, parent+"-old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, parent); err != nil {
+		t.Fatal(err)
+	}
+	if _, e := newTree(path); e == nil || e.Code != "PATH_INVALID" {
+		t.Fatal(e)
 	}
 	children, _ := os.ReadDir(outside)
 	if len(children) != 0 {
@@ -751,16 +711,15 @@ func TestWhitespacePathsRemainExact(t *testing.T) {
 	f.repo("api")
 	f.workspace([]Ref{{Repo: "api", Target: "repos/api "}}, "")
 	root := filepath.Join(f.root, "workspace ")
-	f.call(0, "workspace", "create", "--config", "analysis", "--path", root)
-	result := object(f.call(0, "workspace", "status", "--path", root)["data"])
-	if result["workspace_path"] != root || object(array(result["repos"])[0])["path"] != "repos/api " {
+	result := object(f.call(0, "create", "--config", "analysis", "--path", root)["data"])
+	if result["workspace_path"] != root || object(array(result["repos"])[0])["target_dir"] != "repos/api " {
 		t.Fatal(result)
 	}
 }
 
 func TestStatusDirtyDetachedUnbornAndReadOnlyIndex(t *testing.T) {
 	f := setup(t)
-	root := f.create()
+	root := f.createWithCheckout()
 	base := filepath.Join(root, "repos", "api")
 	index := filepath.Join(base, ".git", "index")
 	before, err := os.ReadFile(index)
@@ -772,7 +731,7 @@ func TestStatusDirtyDetachedUnbornAndReadOnlyIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry := func() *map[string]any {
-		result := object(f.call(0, "workspace", "status", "--path", root)["data"])
+		result := object(f.call(0, "status", "--path", root)["data"])
 		row := object(array(result["repos"])[0])
 		return &row
 	}
@@ -810,11 +769,11 @@ func TestStatusDirtyDetachedUnbornAndReadOnlyIndex(t *testing.T) {
 		t.Fatal("detached branch invented")
 	}
 	var human, diag bytes.Buffer
-	if code := f.app.run(context.Background(), []string{"workspace", "status", "--path", root}, &human, &diag, "0.1.0"); code != 0 || !strings.Contains(human.String(), "detached HEAD") {
+	if code := f.app.run(context.Background(), []string{"status", "--path", root}, &human, &diag, "0.1.0"); code != 0 || !strings.Contains(human.String(), "detached HEAD") {
 		t.Fatal(human.String(), diag.String())
 	}
 	f.git(root, "init", "-b", "new", filepath.Join(root, "unborn"))
-	result := object(f.call(0, "workspace", "status", "--path", root)["data"])
+	result := object(f.call(0, "status", "--path", root)["data"])
 	for _, row := range array(result["repos"]) {
 		r := object(row)
 		if r["path"] == "unborn" && (r["branch"] != "new" || r["commit"] != nil || r["clean"] != true) {
@@ -824,13 +783,13 @@ func TestStatusDirtyDetachedUnbornAndReadOnlyIndex(t *testing.T) {
 }
 func TestStatusWorktreeOwnershipAndBrokenCandidates(t *testing.T) {
 	f := setup(t)
-	root := f.create()
+	root := f.createWithCheckout()
 	base := filepath.Join(root, "repos", "api")
 	commit := f.git(base, "rev-parse", "HEAD")
 	container := filepath.Join(root, ".workbox", "worktree")
 	wt := filepath.Join(container, "feature")
 	f.git(base, "worktree", "add", "-b", "feature", wt, commit)
-	result := object(f.call(0, "workspace", "status", "--path", root)["data"])
+	result := object(f.call(0, "status", "--path", root)["data"])
 	repos := array(result["repos"])
 	if len(repos) != 2 || object(repos[0])["kind"] != "worktree" || object(repos[0])["commit"] != commit {
 		t.Fatal(result)
@@ -848,7 +807,7 @@ func TestStatusWorktreeOwnershipAndBrokenCandidates(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(container, "file"), []byte("bad"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	response := f.call(1, "workspace", "status", "--path", root)
+	response := f.call(1, "status", "--path", root)
 	if errorCode(response) != "STATUS_PARTIAL" {
 		t.Fatal(response)
 	}
@@ -869,11 +828,11 @@ func TestStatusWorktreeOwnershipAndBrokenCandidates(t *testing.T) {
 }
 func TestStatusSubmoduleAndIgnoredFiles(t *testing.T) {
 	f := setup(t)
-	root := f.create()
+	root := f.createWithCheckout()
 	base := filepath.Join(root, "repos", "api")
 	f.git(base, "submodule", "add", filepath.Join(f.remotes, "api.git"), "deps/sub")
 	f.git(base, "commit", "-am", "Add submodule")
-	result := object(f.call(0, "workspace", "status", "--path", root)["data"])
+	result := object(f.call(0, "status", "--path", root)["data"])
 	if len(array(result["repos"])) != 1 || object(array(result["repos"])[0])["clean"] != true {
 		t.Fatal(result)
 	}
@@ -881,7 +840,7 @@ func TestStatusSubmoduleAndIgnoredFiles(t *testing.T) {
 	if err := os.WriteFile(dirty, []byte("dirty"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	result = object(f.call(0, "workspace", "status", "--path", root)["data"])
+	result = object(f.call(0, "status", "--path", root)["data"])
 	if object(array(result["repos"])[0])["clean"] != false {
 		t.Fatal(result)
 	}
@@ -894,7 +853,7 @@ func TestStatusSubmoduleAndIgnoredFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(base, "ignored"), []byte("ignored"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	result = object(f.call(0, "workspace", "status", "--path", root)["data"])
+	result = object(f.call(0, "status", "--path", root)["data"])
 	if object(array(result["repos"])[0])["clean"] != true {
 		t.Fatal(result)
 	}
@@ -904,7 +863,7 @@ func TestUnreadablePathsAndAbnormalContainer(t *testing.T) {
 		t.Skip("root bypasses filesystem mode permissions")
 	}
 	f := setup(t)
-	root := f.create()
+	root := f.createWithCheckout()
 	configDir := filepath.Dir(f.sqlite.path)
 	if err := os.Chmod(configDir, 0); err != nil {
 		t.Fatal(err)
@@ -921,7 +880,7 @@ func TestUnreadablePathsAndAbnormalContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(hidden, 0700) })
-	result := f.call(1, "workspace", "status", "--path", root)
+	result := f.call(1, "status", "--path", root)
 	if errorCode(result) != "STATUS_PARTIAL" || len(array(object(result["data"])["scan_errors"])) == 0 {
 		t.Fatal(result)
 	}
@@ -933,7 +892,7 @@ func TestUnreadablePathsAndAbnormalContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(denied, 0700) })
-	result = f.call(1, "workspace", "status", "--path", root)
+	result = f.call(1, "status", "--path", root)
 	if len(array(object(result["data"])["scan_errors"])) != 1 {
 		t.Fatal(result)
 	}
@@ -947,7 +906,7 @@ func TestUnreadablePathsAndAbnormalContainer(t *testing.T) {
 	if err := os.Symlink(f.remotes, container); err != nil {
 		t.Fatal(err)
 	}
-	f.call(1, "workspace", "status", "--path", root)
+	f.call(1, "status", "--path", root)
 }
 func TestTimeoutAndSecretDiagnostics(t *testing.T) {
 	f := setup(t)
@@ -974,7 +933,7 @@ func TestTimeoutAndSecretDiagnostics(t *testing.T) {
 	}
 }
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
-func TestRealSignalsDuringClone(t *testing.T) {
+func TestRealSignalsDuringCreate(t *testing.T) {
 	f := setup(t)
 	f.remote("worker")
 	f.repo("api")
@@ -985,7 +944,7 @@ func TestRealSignalsDuringClone(t *testing.T) {
 		t.Fatal(err)
 	}
 	marker := filepath.Join(f.root, "started")
-	wrapper := "#!/bin/sh\ncase \"$*\" in\n  *clone*worker.git*) touch " + shellQuote(marker) + "; sleep 30 ;;\nesac\nexec " + shellQuote(f.realGit) + " \"$@\"\n"
+	wrapper := "#!/bin/sh\ncase \"$*\" in\n  *check-ref-format*) touch " + shellQuote(marker) + "; sleep 30 ;;\nesac\nexec " + shellQuote(f.realGit) + " \"$@\"\n"
 	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(wrapper), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -994,7 +953,7 @@ func TestRealSignalsDuringClone(t *testing.T) {
 		t.Run(sig.String(), func(t *testing.T) {
 			os.Remove(marker)
 			target := filepath.Join(f.root, fmt.Sprintf("signal-%d", sig))
-			cmd := exec.Command(testBinary, "workspace", "create", "--config", "analysis", "--path", target, "--format", "json")
+			cmd := exec.Command(testBinary, "create", "--config", "analysis", "--path", target, "--format", "json")
 			cmd.Env = setEnv(os.Environ(), "PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 			var stdout, stderr bytes.Buffer
 			cmd.Stdout = &stdout
@@ -1017,7 +976,7 @@ func TestRealSignalsDuringClone(t *testing.T) {
 			}
 			exists, _ := pathExists(marker)
 			if !exists {
-				t.Fatal("second clone did not start")
+				t.Fatal("config validation did not start")
 			}
 			if err := cmd.Process.Signal(sig); err != nil {
 				t.Fatal(err)
@@ -1039,10 +998,7 @@ func TestRealSignalsDuringClone(t *testing.T) {
 			if json.Unmarshal(stdout.Bytes(), &result) != nil || errorCode(result) != "INTERRUPTED" {
 				t.Fatal(stdout.String())
 			}
-			repos := array(object(result["data"])["repos"])
-			if object(repos[0])["state"] != "completed" || object(repos[1])["state"] != "failed" {
-				t.Fatal(result)
-			}
+			assertAbsent(t, target)
 		})
 	}
 }

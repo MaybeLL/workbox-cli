@@ -106,7 +106,7 @@ func TestMySQLResumesInterruptedInitialization(t *testing.T) {
 	// Exercise the complete command path: it reads before committing.
 	var out, diag strings.Builder
 	a := &app{store: s}
-	if code := a.run(context.Background(), []string{"workspace-config", "add", "example", "--format", "json"}, &out, &diag, "test"); code != 0 {
+	if code := a.run(context.Background(), []string{"workbox-config", "add", "example", "--format", "json"}, &out, &diag, "test"); code != 0 {
 		t.Fatalf("recovery command failed: %s %s", out.String(), diag.String())
 	}
 	if len(storeRead(t, s).Workspaces) != 1 {
@@ -153,14 +153,14 @@ func TestMySQLBusinessAndCrossBackendTransfer(t *testing.T) {
 		t.Fatal("reference protection failed")
 	}
 	root := filepath.Join(f.root, "mysql-workspace")
-	f.call(0, "workspace", "plan", "--config", "analysis", "--path", root)
+	f.call(0, "plan", "--config", "analysis", "--path", root)
 	assertAbsent(t, root)
-	f.call(0, "workspace", "create", "--config", "analysis", "--path", root)
-	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); err != nil {
+	f.call(0, "create", "--config", "analysis", "--path", root)
+	if _, err := os.Stat(filepath.Join(root, ".workbox", "repos.json")); err != nil {
 		t.Fatal(err)
 	}
-	status := object(f.call(0, "workspace", "status", "--path", root)["data"])
-	if len(array(status["repos"])) != 1 || object(array(status["repos"])[0])["clean"] != true {
+	status := object(f.call(0, "status", "--path", root)["data"])
+	if len(array(status["repos"])) != 0 {
 		t.Fatal(status)
 	}
 	f.call(0, "repo-config", "update", "api", "--summary", "跨存储说明 🙂")
@@ -209,7 +209,7 @@ func TestMySQLCLIUsesDSNFile(t *testing.T) {
 	if out, err := initCmd.CombinedOutput(); err != nil {
 		t.Fatalf("init failed: %s", out)
 	}
-	cmd := exec.Command(testBinary, "workspace-config", "add", "from-cli", "--format", "json")
+	cmd := exec.Command(testBinary, "workbox-config", "add", "from-cli", "--format", "json")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("CLI failed: %s", out)

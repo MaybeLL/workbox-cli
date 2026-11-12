@@ -4,9 +4,9 @@ Workbox is distributed through GitHub Releases and the self-managed `MaybeLL/hom
 
 Starting with 0.1.1, run `workbox skill install` after installing the executable to install its bundled `workbox` skill into `~/.agents/skills/workbox`. Installing or upgrading the executable does not automatically write to an agent's configuration. The skill and its references are embedded in each binary and also included under `skills/workbox` in release archives. Skill installation works offline; `--path DIR` selects a different skills parent directory. Different existing content is preserved and reported as a conflict.
 
-Starting with 0.1.3, newly created workspaces contain a root `AGENTS.md` that routes agents to the same global `workbox` skill for initialization and Git worktree development. It does not install a second, project-local skill or modify baseline repositories. Start agent sessions at the workspace root, or explicitly load this entry point and the global skill when starting inside a nested repository/worktree. The entry point instructs agents to use their configured global skill location and request the location or installation if the skill is unavailable. Existing workspaces are not rewritten by an executable upgrade.
+Install the global Workbox Skill using `workbox skill install`. Team-configured documents and selected user Skills are prepared per instance.
 
-Starting with 0.3.0, run `workbox init` after installation or upgrade before using configuration commands or workspace plan/create. Existing databases are adopted without losing their data. The wizard offers Skill installation; scripts must provide explicit backend and Skill flags. See [initialization and recovery](initialization.md).
+Starting with 0.3.0, run `workbox init` after installation or upgrade before using configuration commands or workbox plan/create. Existing databases are adopted without losing their data. The wizard offers Skill installation; scripts must provide explicit backend and Skill flags. See [initialization and recovery](initialization.md).
 
 ## GitHub Releases
 
@@ -46,7 +46,7 @@ Publish the final `workbox.rb` release asset as `Formula/workbox.rb` in the tap.
 
 ## Uninstall
 
-Run `workbox uninstall --dry-run` to preview, then `workbox uninstall` to remove the CLI and its unmodified companion skills. This is available in 0.1.2 and later. Homebrew installs use Homebrew to remove all installed Workbox versions; direct downloads unlink only the running executable and its verified invocation link. Existing workspaces and configuration databases remain available if you reinstall. Shared dependency packages, the tap and Homebrew caches are managed separately by Homebrew.
+Run `workbox uninstall --dry-run` to preview, then `workbox uninstall` to remove the CLI and its unmodified companion skills. This is available in 0.1.2 and later. Homebrew installs use Homebrew to remove all installed Workbox versions; direct downloads unlink only the running executable and its verified invocation link. Existing Workbox instances and configuration databases remain available if you reinstall. Shared dependency packages, the tap and Homebrew caches are managed separately by Homebrew.
 
 Default agent skill directories and locations recorded by `skill install` are checked before deletion. Custom locations from 0.1.1 need either `workbox uninstall --skill-path DIR` or an identical `workbox skill install --path DIR` after upgrading to register the location. Modified skills are retained and stop uninstall before deletion. Installation receipts contain canonical paths and file hashes under `${XDG_STATE_HOME:-~/.local/state}/workbox`, or `WORKBOX_STATE_HOME` when set. Use the same user/environment as installation. No configuration DB or repository registry is used to discover skills.
 
@@ -62,7 +62,7 @@ make release VERSION=0.3.0
 
 The new `dist` directory contains four CGO-free binaries in archives, checksums, and the initial Homebrew source formula. The output directory must not already exist. Packaging uses the Go standard library and Go tooling; failures preserve partial artifacts. Source paths are removed using `-trimpath`.
 
-Validate the native executable using `sh scripts/check-install.sh /path/to/workbox`, verify archive hashes and formula syntax, then test Homebrew installation using the exact public artifacts. The script isolates home, installation records, configuration and workspaces in a temporary directory, then runs a real self-uninstall on a disposable executable copy. Test upgrade from the previous release once one exists. Cross-compilation alone does not prove runtime compatibility; CI runs tests on macOS and Linux.
+Validate the native executable using `sh scripts/check-install.sh /path/to/workbox`, verify archive hashes and formula syntax, then test Homebrew installation using the exact public artifacts. The script isolates home, installation records, configuration and Workbox instances in a temporary directory, then runs a real self-uninstall on a disposable executable copy. Test upgrade from the previous release once one exists. Cross-compilation alone does not prove runtime compatibility; CI runs tests on macOS and Linux.
 
 CI tests both systems and runs the shared storage contracts and integration tests against an ephemeral MySQL 8.4 service. Require a successful CI run for the release commit, including MySQL, before tagging. The release workflow runs on version tags such as `v0.2.0`, tests, packages a draft, builds and tests bottles, merges their metadata, then publishes all assets together. Public archive installation checks and a real Homebrew install/skill-install/uninstall check on an ephemeral macOS runner run after publication. Updating the separate tap is an explicit maintainer step; the workflow requires no cross-repository token.
 

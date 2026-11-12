@@ -75,7 +75,33 @@ func readSnapshot(ctx context.Context, tx *sql.Tx, version int) (snapshot, *Fail
 	if err != nil {
 		return s, dbError(err)
 	}
-	rows, err = tx.QueryContext(ctx, "SELECT id,name,repos,init_script FROM workspace_config ORDER BY name")
+	columns = "id,name,repos,init_script"
+	if version >= 4 {
+		columns += ",docs,skills"
+		skillRows, err := tx.QueryContext(ctx, "SELECT name,source FROM skill_config")
+		if err != nil {
+			return s, dbError(err)
+		}
+		for skillRows.Next() {
+			var name, raw string
+			if err := skillRows.Scan(&name, &raw); err != nil {
+				skillRows.Close()
+				return s, dbError(err)
+			}
+			v, e := decodeSkill([]byte(raw))
+			if e != nil || name != v.Name {
+				skillRows.Close()
+				return s, invalid("Invalid stored Skill")
+			}
+			s.Skills[name] = v
+		}
+		err = skillRows.Err()
+		skillRows.Close()
+		if err != nil {
+			return s, dbError(err)
+		}
+	}
+	rows, err = tx.QueryContext(ctx, "SELECT "+columns+" FROM workspace_config ORDER BY name")
 	if err != nil {
 		return s, dbError(err)
 	}
@@ -83,11 +109,29 @@ func readSnapshot(ctx context.Context, tx *sql.Tx, version int) (snapshot, *Fail
 	for rows.Next() {
 		var w workspaceRow
 		var raw string
-		if err := rows.Scan(&w.ID, &w.Name, &raw, &w.Script); err != nil {
+		var docJSON, skillJSON string
+		dest := []any{&w.ID, &w.Name, &raw, &w.Script}
+		if version >= 4 {
+			dest = append(dest, &docJSON, &skillJSON)
+		}
+		if err := rows.Scan(dest...); err != nil {
 			return s, dbError(err)
 		}
 		if json.Unmarshal([]byte(raw), &w.Repos) != nil || w.Repos == nil {
 			return s, invalid("Invalid repository references in database")
+		}
+		if version >= 4 {
+			docs, e := parseDocuments([]byte(docJSON))
+			if e != nil {
+				return s, e
+			}
+			w.Docs = docs
+			if json.Unmarshal([]byte(skillJSON), &w.Skills) != nil {
+				return s, invalid("Invalid stored Skill list")
+			}
+			if len(w.Skills) == 0 {
+				w.Skills = nil
+			}
 		}
 		s.Workspaces[w.Name] = w
 	}
@@ -106,7 +150,9 @@ func insertRepo(ctx context.Context, tx *sql.Tx, r Repo) *Failure {
 }
 func insertWorkspace(ctx context.Context, tx *sql.Tx, w workspaceRow) *Failure {
 	raw, _ := json.Marshal(w.Repos)
-	_, err := tx.ExecContext(ctx, "INSERT INTO workspace_config (id,name,repos,init_script) VALUES (?,?,?,?)", w.ID, w.Name, string(raw), w.Script)
+	docs, _ := json.Marshal(append([]Document{}, w.Docs...))
+	skills, _ := json.Marshal(append([]string{}, w.Skills...))
+	_, err := tx.ExecContext(ctx, "INSERT INTO workspace_config (id,name,repos,init_script,docs,skills) VALUES (?,?,?,?,?,?)", w.ID, w.Name, string(raw), w.Script, string(docs), string(skills))
 	if err != nil {
 		return dbError(err)
 	}
@@ -116,6 +162,21 @@ func insertWorkspace(ctx context.Context, tx *sql.Tx, w workspaceRow) *Failure {
 // Persist only changed rows. Both relational adapters call this inside their
 // own transaction after acquiring their write lock and comparing snapshots.
 func writeSnapshot(ctx context.Context, tx *sql.Tx, current, next snapshot) *Failure {
+	for name, v := range current.Skills {
+		if next.Skills[name] != v {
+			if _, err := tx.ExecContext(ctx, "DELETE FROM skill_config WHERE name=?", name); err != nil {
+				return dbError(err)
+			}
+		}
+	}
+	for name, v := range next.Skills {
+		if current.Skills[name] != v {
+			raw, _ := json.Marshal(v)
+			if _, err := tx.ExecContext(ctx, "INSERT INTO skill_config(name,source) VALUES (?,?)", name, string(raw)); err != nil {
+				return dbError(err)
+			}
+		}
+	}
 	for key, old := range current.Teams {
 		if value, ok := next.Teams[key]; !ok || old != value {
 			if _, err := tx.ExecContext(ctx, "DELETE FROM team_config WHERE id=?", old.ID); err != nil {

@@ -247,7 +247,7 @@ func writeNotices(path string) error {
 }
 func formula(version, revision string) string {
 	return fmt.Sprintf(`class Workbox < Formula
-  desc "Reusable configurations and safe local Git workspace preparation"
+  desc "Reusable configurations and local Workbox instance preparation"
   homepage "https://github.com/MaybeLL/workbox-cli"
   url "https://github.com/MaybeLL/workbox-cli.git", tag: "v%s", revision: %q
   version %q

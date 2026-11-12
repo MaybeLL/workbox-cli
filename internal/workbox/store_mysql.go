@@ -95,7 +95,7 @@ func mysqlTables(ctx context.Context, conn *sql.Conn) (map[string]bool, *Failure
 			rows.Close()
 			return nil, dbError(err)
 		}
-		if (name != "workbox_schema" && name != "repo_config" && name != "workspace_config" && name != "team_config") || !engine.Valid || !strings.EqualFold(engine.String, "InnoDB") {
+		if (name != "workbox_schema" && name != "repo_config" && name != "workspace_config" && name != "team_config" && name != "skill_config") || !engine.Valid || !strings.EqualFold(engine.String, "InnoDB") {
 			rows.Close()
 			return nil, fail("SCHEMA_UNSUPPORTED", "MySQL requires a dedicated Workbox database with InnoDB tables")
 		}
@@ -129,17 +129,20 @@ func mysqlSchemaState(ctx context.Context, conn *sql.Conn) (int, *Failure) {
 		}
 		return 0, dbError(err)
 	}
-	if version < 0 || version > 3 {
+	if version < 0 || version > 4 {
 		return 0, fail("SCHEMA_UNSUPPORTED", "Unsupported MySQL schema version")
 	}
-	if version >= 1 && (!tables["repo_config"] || !tables["workspace_config"] || (version == 3 && !tables["team_config"])) {
+	complete := func(t map[string]bool) bool {
+		return t["repo_config"] && t["workspace_config"] && (version < 3 || t["team_config"]) && (version < 4 || t["skill_config"])
+	}
+	if version >= 1 && !complete(tables) {
 		// DDL may have finished after the first table listing but before the
 		// version read. Recheck after observing the published ready marker.
 		tables, e = mysqlTables(ctx, conn)
 		if e != nil {
 			return 0, e
 		}
-		if !tables["repo_config"] || !tables["workspace_config"] || (version == 3 && !tables["team_config"]) {
+		if !complete(tables) {
 			return 0, fail("SCHEMA_UNSUPPORTED", "Incomplete MySQL configuration schema")
 		}
 	}
@@ -167,7 +170,7 @@ func (s *mysqlStore) schemaLock(ctx context.Context, conn *sql.Conn) (func(), *F
 
 func (s *mysqlStore) initialize(ctx context.Context, conn *sql.Conn) *Failure {
 	state, e := mysqlSchemaState(ctx, conn)
-	if e != nil || state == 3 {
+	if e != nil || state == 4 {
 		return e
 	}
 	release, e := s.schemaLock(ctx, conn)
@@ -176,36 +179,34 @@ func (s *mysqlStore) initialize(ctx context.Context, conn *sql.Conn) *Failure {
 	}
 	defer release()
 	state, e = mysqlSchemaState(ctx, conn)
-	if e != nil || state == 3 {
+	if e != nil || state == 4 {
 		return e
 	}
-	if state == 1 {
+	if state <= 0 {
+		statements := []string{
+			"CREATE TABLE IF NOT EXISTS workbox_schema (id TINYINT NOT NULL PRIMARY KEY, version INT NOT NULL) ENGINE=InnoDB",
+			"INSERT INTO workbox_schema (id,version) VALUES (1,0) ON DUPLICATE KEY UPDATE id=id",
+			"CREATE TABLE IF NOT EXISTS repo_config (id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY, name VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE, source_url LONGTEXT NOT NULL, default_branch LONGTEXT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin",
+			"CREATE TABLE IF NOT EXISTS workspace_config (id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY, name VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE, repos LONGTEXT NOT NULL, init_script LONGTEXT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin",
+			"UPDATE workbox_schema SET version=1 WHERE id=1",
+		}
+		for _, statement := range statements {
+			if _, err := conn.ExecContext(ctx, statement); err != nil {
+				return dbError(err)
+			}
+		}
+	}
+	if state < 2 {
 		if e := migrateMySQLSummary(ctx, conn); e != nil {
 			return e
 		}
-		return migrateMySQLTeams(ctx, conn)
 	}
-	if state == 2 {
-		return migrateMySQLTeams(ctx, conn)
-	}
-	// MySQL DDL commits implicitly. Keep it outside the data transaction,
-	// serialize initialization, then migrate the legacy schema to version 2.
-	statements := []string{
-		"CREATE TABLE IF NOT EXISTS workbox_schema (id TINYINT NOT NULL PRIMARY KEY, version INT NOT NULL) ENGINE=InnoDB",
-		"INSERT INTO workbox_schema (id,version) VALUES (1,0) ON DUPLICATE KEY UPDATE id=id",
-		"CREATE TABLE IF NOT EXISTS repo_config (id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY, name VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE, source_url LONGTEXT NOT NULL, default_branch LONGTEXT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin",
-		"CREATE TABLE IF NOT EXISTS workspace_config (id CHAR(36) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY, name VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL UNIQUE, repos LONGTEXT NOT NULL, init_script LONGTEXT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin",
-		"UPDATE workbox_schema SET version=1 WHERE id=1",
-	}
-	for _, statement := range statements {
-		if _, err := conn.ExecContext(ctx, statement); err != nil {
-			return dbError(err)
+	if state < 3 {
+		if e := migrateMySQLTeams(ctx, conn); e != nil {
+			return e
 		}
 	}
-	if e := migrateMySQLSummary(ctx, conn); e != nil {
-		return e
-	}
-	return migrateMySQLTeams(ctx, conn)
+	return migrateMySQLDocs(ctx, conn)
 }
 
 func (s *mysqlStore) snapshot(ctx context.Context) (snapshot, *Failure) {
@@ -254,7 +255,7 @@ func (s *mysqlStore) snapshot(ctx context.Context) (snapshot, *Failure) {
 	if err := tx.QueryRowContext(ctx, "SELECT version FROM workbox_schema WHERE id=1").Scan(&version); err != nil {
 		return snapshot{}, dbError(err)
 	}
-	if version < 1 || version > 3 {
+	if version < 1 || version > 4 {
 		return snapshot{}, fail("SCHEMA_UNSUPPORTED", "Unsupported MySQL schema version")
 	}
 	return readSnapshot(ctx, tx, version)
@@ -288,10 +289,10 @@ func (s *mysqlStore) commit(ctx context.Context, expected, next snapshot) *Failu
 	if err := tx.QueryRowContext(ctx, "SELECT version FROM workbox_schema WHERE id=1 FOR UPDATE").Scan(&version); err != nil {
 		return dbError(err)
 	}
-	if version != 3 {
+	if version != 4 {
 		return fail("SCHEMA_UNSUPPORTED", "Unsupported MySQL schema version")
 	}
-	current, e := readSnapshot(ctx, tx, 3)
+	current, e := readSnapshot(ctx, tx, 4)
 	if e != nil {
 		return e
 	}
@@ -339,6 +340,33 @@ func migrateMySQLTeams(ctx context.Context, conn *sql.Conn) *Failure {
 		}
 	}
 	if _, err := conn.ExecContext(ctx, "UPDATE workbox_schema SET version=3 WHERE id=1"); err != nil {
+		return dbError(err)
+	}
+	return nil
+}
+
+func migrateMySQLDocs(ctx context.Context, conn *sql.Conn) *Failure {
+	var count int
+	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='workspace_config' AND COLUMN_NAME='docs'").Scan(&count); err != nil {
+		return dbError(err)
+	}
+	if count == 0 {
+		if _, err := conn.ExecContext(ctx, "ALTER TABLE workspace_config ADD COLUMN docs LONGTEXT NOT NULL DEFAULT ('[]')"); err != nil {
+			return dbError(err)
+		}
+	}
+	if _, err := conn.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS skill_config (name VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY, source LONGTEXT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"); err != nil {
+		return dbError(err)
+	}
+	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='workspace_config' AND COLUMN_NAME='skills'").Scan(&count); err != nil {
+		return dbError(err)
+	}
+	if count == 0 {
+		if _, err := conn.ExecContext(ctx, "ALTER TABLE workspace_config ADD COLUMN skills LONGTEXT NOT NULL DEFAULT ('[]')"); err != nil {
+			return dbError(err)
+		}
+	}
+	if _, err := conn.ExecContext(ctx, "UPDATE workbox_schema SET version=4 WHERE id=1"); err != nil {
 		return dbError(err)
 	}
 	return nil

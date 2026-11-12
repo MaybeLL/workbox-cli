@@ -47,7 +47,7 @@ func TestInitGateBeforeSideEffects(t *testing.T) {
 	home := initHome(t)
 	t.Setenv("WORKBOX_DB", "mysql")
 	t.Setenv("WORKBOX_MYSQL_DSN_FILE", filepath.Join(home, "missing-secret"))
-	for _, args := range [][]string{{"repo-config", "list"}, {"workspace-config", "add", "empty"}, {"config", "import", "--input", filepath.Join(home, "missing")}, {"config", "export", "--output", filepath.Join(home, "out")}, {"workspace", "create", "--config", "absent", "--path", filepath.Join(home, "workspace")}, {"workspace", "plan", "--config", "absent", "--path", filepath.Join(home, "workspace")}} {
+	for _, args := range [][]string{{"repo-config", "list"}, {"workbox-config", "add", "empty"}, {"config", "import", "--input", filepath.Join(home, "missing")}, {"config", "export", "--output", filepath.Join(home, "out")}, {"create", "--config", "absent", "--path", filepath.Join(home, "workspace")}, {"plan", "--config", "absent", "--path", filepath.Join(home, "workspace")}} {
 		r := initCall(t, 2, args...)
 		if r.Error.Code != "NOT_INITIALIZED" {
 			t.Fatal(r.Error)
@@ -58,7 +58,7 @@ func TestInitGateBeforeSideEffects(t *testing.T) {
 	assertAbsent(t, filepath.Join(home, "out"))
 	initCall(t, 0, "--help")
 	initCall(t, 0, "--version")
-	initCall(t, 0, "workspace", "status", "--path", home)
+	initCall(t, 0, "status", "--path", home)
 	r := initCall(t, 2, "repo-config", "add", "x")
 	if r.Error.Code != "INVALID_ARGUMENTS" {
 		t.Fatal(r.Error)
@@ -66,7 +66,7 @@ func TestInitGateBeforeSideEffects(t *testing.T) {
 }
 func TestInitSQLiteAdoptsLegacyAndReinitializes(t *testing.T) {
 	f := setup(t)
-	f.call(0, "workspace-config", "add", "legacy")
+	f.call(0, "workbox-config", "add", "legacy")
 	before := storeRead(t, f.sqlite)
 	first := initCall(t, 0, "init", "--backend", "sqlite", "--skip-skill").Data.(map[string]any)
 	if first["initialized"] != true || first["state"] != "initialized" {
@@ -75,7 +75,7 @@ func TestInitSQLiteAdoptsLegacyAndReinitializes(t *testing.T) {
 	if !sameSnapshot(before, storeRead(t, f.sqlite)) {
 		t.Fatal("legacy IDs or data changed")
 	}
-	initCall(t, 0, "workspace-config", "show", "legacy")
+	initCall(t, 0, "workbox-config", "show", "legacy")
 	root, e := settingsRoot()
 	if e != nil {
 		t.Fatal(e)
@@ -192,7 +192,7 @@ func TestInitSkillFailureKeepsSettingsUsable(t *testing.T) {
 	if r.Error.Code != "SKILL_CONFLICT" || data["state"] != "partial" || data["initialized"] != true {
 		t.Fatal(r)
 	}
-	initCall(t, 0, "workspace-config", "add", "works")
+	initCall(t, 0, "workbox-config", "add", "works")
 	initCall(t, 0, "init", "--backend", "sqlite", "--install-skill", "--skill-path", filepath.Join(home, "other-skills"))
 	initCall(t, 0, "skill", "install", "--path", filepath.Join(home, "other-skills"))
 }
@@ -334,7 +334,7 @@ func TestInitMySQLCopyAndCredentialPersistence(t *testing.T) {
 	f.repo("api")
 	f.call(0, "team-config", "add", "credit", "--name", "授信")
 	f.call(0, "repo-config", "add-team", "api", "--team", "credit")
-	f.call(0, "workspace-config", "add", "analysis", "--repos-file", f.file("refs.json", `[{"repo":"api","target_dir":"api"}]`))
+	f.call(0, "workbox-config", "add", "analysis", "--repos-file", f.file("refs.json", `[{"repo":"api","target_dir":"api"}]`))
 	before := storeRead(t, f.sqlite)
 	initCall(t, 0, "init", "--backend", "sqlite", "--skip-skill")
 	t.Setenv("WORKBOX_DB", "")
@@ -370,7 +370,7 @@ func TestInitMySQLCopyAndCredentialPersistence(t *testing.T) {
 	if err = os.WriteFile(input, []byte("not a connection"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	initCall(t, 0, "workspace-config", "show", "analysis")
+	initCall(t, 0, "workbox-config", "show", "analysis")
 	initCall(t, 0, "init", "--backend", "mysql", "--skip-skill", "--copy-config")
 	now, e := loadSettings(root)
 	if e != nil || now.value.Storage.DSNFile == old.value.Storage.DSNFile {
@@ -430,7 +430,7 @@ func TestInitUsesFrozenSourceAndRetainsCopiedDataOnSettingsFailure(t *testing.T)
 			if e != nil {
 				t.Fatal(e)
 			}
-			f.call(0, "workspace-config", "add", "late")
+			f.call(0, "workbox-config", "add", "late")
 			a := &app{gitRunner: gitCLI{}}
 			if publishFailure {
 				a.gitRunner = hookedGit{gitCLI{}, func(args []string) *Failure {

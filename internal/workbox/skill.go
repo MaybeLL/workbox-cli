@@ -165,7 +165,7 @@ func installSkill(ctx context.Context, flags map[string]string) (data any, failu
 	if e := recordSkill(dir, files); e != nil {
 		return nil, e
 	}
-	if err := publishSkill(parent, stage); err != nil {
+	if err := publishDir(parent, stage, "workbox"); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			if exists, e := existingSkill(parent, files); exists || e != nil {
 				return result, e

@@ -62,30 +62,36 @@ type StoredRef struct {
 	Ref    *BaselineRef `json:"ref,omitempty"`
 }
 type Workspace struct {
-	ID     string `json:"id,omitempty"`
-	Name   string `json:"name"`
-	Repos  []Ref  `json:"repos"`
-	Script string `json:"init_script"`
+	Skills []string   `json:"skills,omitempty"`
+	Docs   []Document `json:"docs,omitempty"`
+	ID     string     `json:"id,omitempty"`
+	Name   string     `json:"name"`
+	Repos  []Ref      `json:"repos"`
+	Script string     `json:"init_script"`
 }
 type workspaceRow struct {
+	Skills           []string
+	Docs             []Document
 	ID, Name, Script string
 	Repos            []StoredRef
 }
 type snapshot struct {
+	Skills     map[string]SkillSource
 	Teams      map[string]Team
 	Repos      map[string]Repo
 	Workspaces map[string]workspaceRow
 }
 
 func emptySnapshot() snapshot {
-	return snapshot{Teams: map[string]Team{}, Repos: map[string]Repo{}, Workspaces: map[string]workspaceRow{}}
+	return snapshot{Skills: map[string]SkillSource{}, Teams: map[string]Team{}, Repos: map[string]Repo{}, Workspaces: map[string]workspaceRow{}}
 }
 
 type Package struct {
-	Teams      []Team      `json:"team_configs,omitempty"`
-	Version    int         `json:"schema_version"`
-	Repos      []Repo      `json:"repo_configs"`
-	Workspaces []Workspace `json:"workspace_configs"`
+	Skills     []SkillSource `json:"skill_configs,omitempty"`
+	Teams      []Team        `json:"team_configs,omitempty"`
+	Version    int           `json:"schema_version"`
+	Repos      []Repo        `json:"repo_configs"`
+	Workspaces []Workspace   `json:"workspace_configs"`
 }
 
 func names[T any](m map[string]T) []string {
@@ -97,7 +103,7 @@ func names[T any](m map[string]T) []string {
 	return result
 }
 func (s snapshot) public(row workspaceRow) (Workspace, *Failure) {
-	w := Workspace{ID: row.ID, Name: row.Name, Script: row.Script, Repos: []Ref{}}
+	w := Workspace{Skills: append([]string(nil), row.Skills...), Docs: append([]Document(nil), row.Docs...), ID: row.ID, Name: row.Name, Script: row.Script, Repos: []Ref{}}
 	byID := map[string]string{}
 	for _, repo := range s.Repos {
 		byID[repo.ID] = repo.Name
@@ -113,6 +119,10 @@ func (s snapshot) public(row workspaceRow) (Workspace, *Failure) {
 }
 func (s snapshot) portable() (Package, *Failure) {
 	p := Package{Version: 1, Repos: []Repo{}, Workspaces: []Workspace{}}
+	for _, name := range names(s.Skills) {
+		p.Version = 2
+		p.Skills = append(p.Skills, s.Skills[name])
+	}
 	for _, key := range names(s.Teams) {
 		t := s.Teams[key]
 		t.ID = ""
@@ -132,6 +142,9 @@ func (s snapshot) portable() (Package, *Failure) {
 			return p, e
 		}
 		w.ID = ""
+		if len(w.Docs) > 0 {
+			p.Version = 2
+		}
 		p.Workspaces = append(p.Workspaces, w)
 	}
 	return p, nil

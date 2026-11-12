@@ -2,36 +2,22 @@ package workbox
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
-	"time"
 )
 
-type preparedRepo struct {
-	Ref            BaselineRef `json:"ref"`
-	ResolvedCommit *string     `json:"resolved_commit"`
-	Name           string      `json:"name"`
-	Path           *string     `json:"path"`
-	DefaultBranch  string      `json:"default_branch"`
-	State          string      `json:"state"`
-	Branch         *string     `json:"branch"`
-	Commit         *string     `json:"commit"`
-	Error          *Failure    `json:"error"`
-}
-type plannedRepo struct {
-	Teams          []Team         `json:"teams,omitempty"`
-	Summary        string         `json:"summary"`
-	Ref            BaselineRef    `json:"ref"`
-	ResolvedCommit *string        `json:"resolved_commit"`
-	Name           string         `json:"name"`
-	URL            string         `json:"source_url"`
-	DefaultBranch  string         `json:"default_branch"`
-	Target         string         `json:"target_dir"`
-	Path           *string        `json:"path"`
-	Checks         map[string]any `json:"checks"`
+// workspaceRepo describes configured context; target_dir may not exist.
+type workspaceRepo struct {
+	Name          string       `json:"name"`
+	URL           string       `json:"source_url"`
+	Summary       string       `json:"summary"`
+	Teams         []Team       `json:"teams,omitempty"`
+	Target        string       `json:"target_dir"`
+	DefaultBranch string       `json:"default_branch"`
+	Ref           *BaselineRef `json:"ref,omitempty"`
 }
 
 func pointer[T any](value T) *T { return &value }
@@ -42,79 +28,81 @@ func destination(raw string) (string, *Failure) {
 	}
 	exists, err := pathExists(path)
 	if err != nil {
-		return "", ioFailure("Could not inspect workspace target")
+		return "", ioFailure("Could not inspect Workbox target")
 	}
 	if exists {
-		return "", fail("TARGET_EXISTS", "Workspace target must not exist")
+		return "", fail("TARGET_EXISTS", "Workbox target must not exist")
 	}
 	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
 	if err != nil {
-		return "", fail("PATH_INVALID", "Workspace parent must exist and be accessible")
+		return "", fail("PATH_INVALID", "Workbox parent must exist and be accessible")
 	}
 	info, err := os.Stat(parent)
 	if err != nil || !info.IsDir() {
-		return "", fail("PATH_INVALID", "Workspace parent must be a directory")
+		return "", fail("PATH_INVALID", "Workbox parent must be a directory")
 	}
 	if syscall.Access(parent, 3) != nil {
-		return "", ioFailure("Workspace parent is not writable")
+		return "", ioFailure("Workbox parent is not writable")
 	}
 	return filepath.Join(parent, filepath.Base(path)), nil
 }
 
 // Root confines file and directory creation if a component is concurrently linked.
-// Git still consumes paths, so this is not complete isolation from concurrent writers.
 type ownedTree struct {
 	path  string
 	root  *os.Root
 	owned map[string]os.FileInfo
 }
 
-func newTree(path string) (*ownedTree, *Failure) {
-	parentPath := filepath.Dir(path)
+func openInstanceParent(parentPath string) (*os.Root, *Failure) {
 	before, err := os.Lstat(parentPath)
 	resolved, resolveErr := filepath.EvalSymlinks(parentPath)
 	if err != nil || resolveErr != nil || !before.IsDir() || resolved != parentPath {
-		return nil, fail("PATH_INVALID", "Workspace parent was replaced or linked")
+		return nil, fail("PATH_INVALID", "Workbox parent was replaced or linked")
 	}
 	parent, err := os.OpenRoot(parentPath)
 	if err != nil {
-		return nil, ioFailure("Could not open workspace parent")
+		return nil, ioFailure("Could not open Workbox parent")
 	}
-	defer parent.Close()
+
 	actualParent, err := parent.Stat(".")
 	if err != nil || !os.SameFile(before, actualParent) {
-		return nil, fail("PATH_INVALID", "Workspace parent was replaced")
+		parent.Close()
+		return nil, fail("PATH_INVALID", "Workbox parent was replaced")
 	}
+	return parent, nil
+}
+func newTreeAt(parent *os.Root, path string) (*ownedTree, *Failure) {
 	name := filepath.Base(path)
-	if err := parent.Mkdir(name, 0755); err != nil {
+	if err := parent.Mkdir(name, 0700); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return nil, fail("TARGET_EXISTS", "Workspace target appeared during creation")
+			return nil, fail("TARGET_EXISTS", "Workbox target appeared during creation")
 		}
-		return nil, ioFailure("Could not create workspace root")
+		return nil, ioFailure("Could not create Workbox root")
 	}
 	info, err := parent.Lstat(name)
 	if err != nil || !info.IsDir() {
-		return nil, fail("PATH_INVALID", "Workspace root was replaced or linked")
+		return nil, fail("PATH_INVALID", "Workbox root was replaced or linked")
 	}
 	root, err := parent.OpenRoot(name)
 	if err != nil {
-		return nil, ioFailure("Could not open prepared workspace root")
+		return nil, ioFailure("Could not open prepared Workbox root")
 	}
 	actual, err := root.Stat(".")
 	if err != nil || !os.SameFile(info, actual) {
 		root.Close()
-		return nil, fail("PATH_INVALID", "Workspace root was replaced")
+		return nil, fail("PATH_INVALID", "Workbox root was replaced")
 	}
 	return &ownedTree{path: path, root: root, owned: map[string]os.FileInfo{".": info}}, nil
 }
 func (t *ownedTree) check() *Failure {
 	actual, err := os.Lstat(t.path)
 	if err != nil || !actual.IsDir() || !os.SameFile(actual, t.owned["."]) {
-		return fail("PATH_INVALID", "Workspace root was replaced or linked")
+		return fail("PATH_INVALID", "Workbox root was replaced or linked")
 	}
 	resolved, err := filepath.EvalSymlinks(t.path)
 	if err != nil || resolved != t.path {
-		return fail("PATH_INVALID", "Workspace parent was linked")
+		return fail("PATH_INVALID", "Workbox parent was linked")
 	}
 	for name, info := range t.owned {
 		actual, err := t.root.Lstat(name)
@@ -133,47 +121,46 @@ func (t *ownedTree) mkdir(name string) *Failure {
 	}
 	if err := t.root.Mkdir(name, 0755); err != nil {
 		if errors.Is(err, os.ErrExist) {
+			// The filesystem may resolve a different spelling to an owned directory.
+			info, statErr := t.root.Lstat(name)
+			if statErr == nil && info.IsDir() {
+				for _, owned := range t.owned {
+					if os.SameFile(info, owned) {
+						t.owned[name] = info
+						return t.check()
+					}
+				}
+			}
 			return fail("TARGET_EXISTS", "Unexpected directory appeared during creation")
 		}
-		return ioFailure("Could not prepare workspace directory")
+		return ioFailure("Could not prepare Workbox directory")
 	}
 	info, err := t.root.Lstat(name)
 	if err != nil || !info.IsDir() {
-		return fail("PATH_INVALID", "Unexpected link in workspace")
+		return fail("PATH_INVALID", "Unexpected link in Workbox")
 	}
 	t.owned[name] = info
 	return t.check()
 }
-func (t *ownedTree) parents(target string) *Failure {
-	parts := strings.Split(target, "/")
-	for i := 1; i < len(parts); i++ {
-		if e := t.mkdir(filepath.Join(parts[:i]...)); e != nil {
-			return e
-		}
-	}
-	return t.check()
-}
+
+// publishedInstance is returned only after exclusive directory publication succeeds.
+type publishedInstance map[string]any
+
 func (a *app) prepare(ctx context.Context, name, raw string, create bool) (data any, failure *Failure) {
 	result := map[string]any{"workspace_path": nil, "config_name": name}
-	plans := []*plannedRepo{}
-	prepared := []*preparedRepo{}
+	repos := []workspaceRepo{}
+	result["repos"] = repos
 	if create {
 		result["state"] = "failed"
 		result["init_script"] = nil
-		result["repos"] = prepared
-	} else {
-		result["repos"] = plans
 	}
 	stage := "snapshot"
-	var active *preparedRepo
 	defer func() {
 		if failure != nil {
-			failure.Details["stage"] = stage
-			failure.Data = result
-			if active != nil {
-				active.State = "failed"
-				active.Error = failure
+			if _, ok := failure.Details["stage"]; !ok {
+				failure.Details["stage"] = stage
 			}
+			failure.Data = result
 		}
 	}()
 	s, e := a.store.snapshot(ctx)
@@ -202,149 +189,150 @@ func (a *app) prepare(ctx context.Context, name, raw string, create bool) (data 
 		if e := a.validateRepo(ctx, repo); e != nil {
 			return nil, e
 		}
-		if create {
-			prepared = append(prepared, &preparedRepo{Ref: effectiveRef(repo, ref.Ref), Name: repo.Name, DefaultBranch: repo.Branch, State: "not_attempted"})
-		} else {
-			teams := []Team{}
-			public, e := s.publicRepo(repo)
-			if e != nil {
-				return nil, e
-			}
-			for _, key := range public.Teams {
-				teams = append(teams, s.Teams[key])
-			}
-			plans = append(plans, &plannedRepo{Teams: teams, Summary: repo.Summary, Ref: effectiveRef(repo, ref.Ref), Name: repo.Name, URL: repo.URL, DefaultBranch: repo.Branch, Target: ref.Target, Checks: map[string]any{"ok": nil}})
+		public, e := s.publicRepo(repo)
+		if e != nil {
+			return nil, e
 		}
+		entry := workspaceRepo{
+			Name:          repo.Name,
+			URL:           repo.URL,
+			Summary:       repo.Summary,
+			Target:        ref.Target,
+			DefaultBranch: repo.Branch,
+			Ref:           ref.Ref,
+		}
+		for _, key := range public.Teams {
+			entry.Teams = append(entry.Teams, s.Teams[key])
+		}
+		repos = append(repos, entry)
 	}
-	if create {
-		result["repos"] = prepared
-	} else {
-		result["repos"] = plans
+	result["repos"] = repos
+	selectedSkills := []SkillSource{}
+	for _, n := range w.Skills {
+		v, ok := s.Skills[n]
+		if !ok {
+			return nil, missing("skill_config", n)
+		}
+		selectedSkills = append(selectedSkills, v)
 	}
+	result["skills"] = selectedSkills
+	result["docs"] = append([]Document{}, w.Docs...)
 	stage = "path_preflight"
 	root, e := destination(raw)
 	if e != nil {
 		return nil, e
 	}
 	result["workspace_path"] = root
-	for i, ref := range w.Repos {
-		path := filepath.Join(root, filepath.FromSlash(ref.Target))
-		if create {
-			prepared[i].Path = &path
-		} else {
-			plans[i].Path = &path
-		}
-	}
-	resolved := make([]string, len(w.Repos))
-	stage = "remote_preflight"
-	for i, ref := range w.Repos {
-		repo := s.Repos[ref.Repo]
-		commit, e := a.resolveBaseline(ctx, repo, effectiveRef(repo, ref.Ref))
-		if e != nil {
-			if !create {
-				plans[i].Checks = map[string]any{"ok": false, "error": e}
-			}
-			return nil, e
-		}
-		if !create {
-			plans[i].Checks = map[string]any{"ok": true}
-			plans[i].ResolvedCommit = pointer(commit)
-		}
-		resolved[i] = commit
-		if create {
-			prepared[i].ResolvedCommit = pointer(commit)
-		}
-	}
 	if !create {
 		return result, nil
 	}
 	if ctx.Err() != nil {
-		return nil, fail("INTERRUPTED", "Workspace preparation interrupted")
+		return nil, fail("INTERRUPTED", "Workbox preparation interrupted")
 	}
-	stage = "mkdir"
-	tree, e := newTree(root)
-	if e != nil {
-		return nil, e
-	}
-	defer tree.root.Close()
-	for _, dir := range []string{".workbox", filepath.Join(".workbox", "worktree")} {
-		if e := tree.mkdir(dir); e != nil {
-			return nil, e
-		}
-	}
-	stage = "agent_instructions"
-	if e := tree.writeAgentInstructions(); e != nil {
-		return nil, e
-	}
-	stage = "clone"
-	for i, ref := range w.Repos {
-		active = prepared[i]
-		repo := s.Repos[ref.Repo]
-		if e := tree.parents(ref.Target); e != nil {
-			return nil, e
-		}
-		exists, err := pathExists(*active.Path)
-		if err != nil {
-			return nil, ioFailure("Could not inspect repository target")
-		}
-		if exists {
-			return nil, fail("TARGET_EXISTS", "Repository target appeared before clone")
-		}
-		selected := effectiveRef(repo, ref.Ref)
-		if selected.Type == "commit" {
-			if e := tree.mkdir(filepath.FromSlash(ref.Target)); e != nil {
-				return nil, e
-			}
-			if e := a.fetchCommit(ctx, *active.Path, repo.URL, resolved[i]); e != nil {
-				return nil, e
-			}
-			if _, e := a.git(ctx, *active.Path, "checkout", "--detach", resolved[i]); e != nil {
-				return nil, e
-			}
-		} else {
-			if _, _, e := a.gitRunner.run(ctx, "", 1800*time.Second, false, []int{0}, "clone", "--single-branch", "--branch", selected.Value, "--", repo.URL, *active.Path); e != nil {
-				return nil, e
-			}
-			if e := tree.check(); e != nil {
-				return nil, e
-			}
-			// A branch can advance between preflight and clone; keep the captured baseline.
-			if _, e := a.git(ctx, *active.Path, "checkout", "-B", selected.Value, resolved[i]); e != nil {
-				return nil, e
-			}
-		}
-		if e := tree.check(); e != nil {
-			return nil, e
-		}
-		info, err := tree.root.Lstat(filepath.FromSlash(ref.Target))
-		if err != nil || !info.IsDir() {
-			return nil, fail("PATH_INVALID", "Repository target is not a real directory")
-		}
-		tree.owned[filepath.FromSlash(ref.Target)] = info
-		if selected.Type == "branch" {
-			branch, e := a.git(ctx, *active.Path, "symbolic-ref", "--short", "HEAD")
-			if e != nil {
-				return nil, e
-			}
-			if branch != selected.Value {
-				return nil, fail("GIT_ERROR", "Unexpected checkout branch")
-			}
-			active.Branch = &branch
-		}
-		commit, e := a.git(ctx, *active.Path, "rev-parse", "--verify", "HEAD")
-		if e != nil {
-			return nil, e
-		}
-		active.Commit = &commit
-		if commit != resolved[i] {
-			return nil, fail("GIT_ERROR", "Checkout does not match the resolved commit")
-		}
-		active.State = "completed"
-		active = nil
-	}
-	if e := tree.check(); e != nil {
+	if e := a.createInstance(ctx, root, repos, w.Docs, selectedSkills); e != nil {
 		return nil, e
 	}
 	result["state"] = "prepared"
-	return result, nil
+	return publishedInstance(result), nil
+}
+
+// createInstance owns staging, rollback and the single visible commit point.
+func (a *app) createInstance(ctx context.Context, root string, repos []workspaceRepo, docs []Document, selectedSkills []SkillSource) (failure *Failure) {
+	stage := "mkdir"
+	defer func() {
+		if failure != nil {
+			failure.Details["stage"] = stage
+		}
+	}()
+	parentPath := filepath.Dir(root)
+	parent, e := openInstanceParent(parentPath)
+	if e != nil {
+		return e
+	}
+	defer parent.Close()
+	id, e := uuid()
+	if e != nil {
+		return e
+	}
+	stageName := ".workbox-create-" + id
+	tree, e := newTreeAt(parent, filepath.Join(parentPath, stageName))
+	if e != nil {
+		return e
+	}
+	defer tree.root.Close()
+	// Remove only the stage we created, even if another creator wins publication.
+	defer func() {
+		info, err := parent.Lstat(stageName)
+		if err == nil && os.SameFile(info, tree.owned["."]) {
+			_ = parent.RemoveAll(stageName)
+		}
+	}()
+	if e := tree.mkdir(".workbox"); e != nil {
+		return e
+	}
+	stage = "repo_manifest"
+	body, err := json.MarshalIndent(repos, "", "  ")
+	if err != nil {
+		return ioFailure("Could not encode repository list")
+	}
+	if e := tree.writeFile(".workbox/repos.json", append(body, '\n')); e != nil {
+		return e
+	}
+	stage = "documents"
+	if e := a.prepareDocuments(ctx, tree, docs); e != nil {
+		return e
+	}
+	stage = "skills"
+	if len(selectedSkills) > 0 {
+		for _, dir := range []string{".agents", ".agents/skills"} {
+			if e := tree.mkdir(dir); e != nil {
+				return e
+			}
+		}
+	}
+	for _, v := range selectedSkills {
+		if e := a.installTeamSkill(ctx, v, filepath.Join(tree.path, ".agents", "skills", v.Name)); e != nil {
+			e.Details["skill"] = v.Name
+			return e
+		}
+	}
+	stage = "publish"
+	if e := tree.check(); e != nil {
+		return e
+	}
+	if ctx.Err() != nil {
+		return fail("INTERRUPTED", "Workbox preparation interrupted")
+	}
+	publish := a.publishInstance
+	if publish == nil {
+		publish = publishDir
+	}
+	if err := publish(parent, stageName, filepath.Base(root)); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fail("TARGET_EXISTS", "Workbox target appeared during creation")
+		}
+		return ioFailure("Could not publish Workbox directory")
+	}
+	return nil
+}
+
+func (t *ownedTree) writeFile(name string, body []byte) *Failure {
+	if e := t.check(); e != nil {
+		return e
+	}
+	f, err := t.root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fail("TARGET_EXISTS", "Workbox file already exists; nothing was overwritten")
+		}
+		return ioFailure("Could not create Workbox file")
+	}
+	_, writeErr := f.Write(body)
+	info, statErr := f.Stat()
+	closeErr := f.Close()
+	if writeErr != nil || statErr != nil || closeErr != nil {
+		return ioFailure("Could not write Workbox file")
+	}
+	t.owned[name] = info
+	return t.check()
 }
