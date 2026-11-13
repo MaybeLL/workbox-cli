@@ -4,7 +4,7 @@ Prepare local Workbox instances from reusable configurations. `workbox` stores r
 
 Workbox is written in Go and builds to a single executable with a bundled, pure-Go SQLite engine. Users need Git, with existing HTTPS/SSH authentication configured. Supported build targets are macOS and Linux on ARM64 and AMD64; Windows is not supported in this release. Development checkouts use native Git worktrees inside the same Workbox.
 
-项目的目标场景见[产品愿景](docs/Vision.md)，已确认的职责边界见[设计决策](docs/Decisions.md)。
+项目的目标场景见[产品愿景](docs/Vision.md)，已确认的职责边界见[设计决策](docs/Decisions.md)，模块和代码入口见[实现导览](docs/Implementation.md)。
 
 ## Install
 
@@ -15,7 +15,7 @@ brew install MaybeLL/tap/workbox
 workbox --version
 ```
 
-Or download the matching archive from [GitHub Releases](https://github.com/MaybeLL/workbox-cli/releases), verify its checksum and put `workbox` in PATH. See [installation and release instructions](docs/distribution.md).
+Or download the matching archive from [GitHub Releases](https://github.com/MaybeLL/workbox-cli/releases), verify its SHA-256 against the published checksums, then put `workbox` in PATH.
 
 To build from this checkout, use Go 1.26+:
 
@@ -30,7 +30,7 @@ Prebuilt release executables require no Go, Python, C compiler, or separately in
 
 Run `workbox init` after installation or upgrade. The terminal wizard selects SQLite or an existing MySQL database, offers Skill installation (default yes), and confirms before writing. Configuration commands and workbox plan/create require this step; existing databases and IDs are preserved.
 
-For scripts: `workbox init --backend sqlite --skip-skill --format json`. Use `--install-skill` to install the companion Skill and `--skill-path DIR` to choose its parent directory. See [initialization, switching and recovery](docs/initialization.md).
+For scripts: `workbox init --backend sqlite --skip-skill --format json`. Use `--install-skill` to install the companion Skill and `--skill-path DIR` to choose its parent directory.
 
 ## Install the agent skill
 
@@ -200,9 +200,11 @@ workbox init --backend mysql --mysql-dsn-file /path/to/private/mysql.dsn \
 
 Choose `--copy-config` instead when you want to copy existing configurations while retaining the source. Copy validates Git remotes and rejects conflicting target content. Workbox never creates the MySQL database itself.
 
-`WORKBOX_DB`, `WORKBOX_MYSQL_DSN` and `WORKBOX_MYSQL_DSN_FILE` can override saved settings per command, but cannot replace initialization. MySQL still uses the local settings root. Credentials are never included in business exports or database errors. See [initialization](docs/initialization.md) for exact precedence, noninteractive arguments and partial-failure recovery.
+`WORKBOX_DB`, `WORKBOX_MYSQL_DSN` and `WORKBOX_MYSQL_DSN_FILE` can override saved settings per command, but cannot replace initialization. MySQL still uses the local settings root. Credentials are never included in business exports or database errors. SQLite ignores MySQL credentials. For MySQL, supply at most one DSN override. A backend switch with existing configurations requires an explicit copy choice. Copy retains the source and aborts on conflicting target content.
 
-Both adapters implement the same storage interface, keeping SQL, schema initialization, transactions and locking outside business operations. See [backend setup, migration and adapter contracts](docs/storage.md).
+For recovery, inspect the init result’s settings publication and copy state. If settings were published but Skill installation failed, fix the Skill conflict and retry `workbox skill install`. If a database commit or settings publication has unknown status, reread the destination before retrying. If copying succeeded before settings publication failed, keep the target data; retry reuses identical entries.
+
+Both adapters implement the same storage interface, keeping SQL, schema initialization, transactions and locking outside business operations. MySQL needs a dedicated InnoDB database, schema-scoped SELECT, INSERT, UPDATE, DELETE, CREATE and ALTER privileges, and support for named locks. CI exercises MySQL 8.4.
 
 Both backends store team, repository and Workbox configurations. UUID references are local to each store. Each Workbox has its own repository list on disk. Configuration edits affect future creates only.
 
@@ -251,7 +253,13 @@ The suite uses temporary configuration directories and local Git remotes. To inc
 
 When changing the `init` wizard, build the CLI and run it in a terminal with temporary `HOME`, `WORKBOX_CONFIG_HOME` and `WORKBOX_STATE_HOME` directories. Use the arrow keys and Enter to choose a backend, go back to edit a custom Skill path, then cancel with Esc or Ctrl+C. Check that password input stays hidden and that terminal echo and line editing recover after cancellation. Repeat with `NO_COLOR=1`, `TERM=dumb` and a narrow viewport. Check that JSON and piped invocations return without prompting.
 
-Run `sh scripts/check-install.sh /path/to/workbox` to check an installed executable in isolation. For packaging and publication, follow the [release instructions](docs/distribution.md).
+Run `sh scripts/check-install.sh /path/to/workbox` to check an installed executable in isolation.
+
+### Publish a release
+
+To build the release archives locally, run `make release VERSION=0.7.0` with the intended version.
+
+After CI passes on the release commit, push its version tag. The [release workflow](.github/workflows/release.yml) creates the draft, builds the archives and macOS bottles, and merges the bottle checksums into the final formula. If publication stops after both bottles and their metadata are uploaded, rerun the workflow manually with the draft’s `release_tag`. After publication, copy the final `workbox.rb` release asset to `Formula/workbox.rb` in the Homebrew tap. Use a new version for corrections to published artifacts.
 
 ## Repository summaries and private catalogs
 

@@ -26,7 +26,7 @@ flowchart TD
 
 1. **初始化 CLI。** `init` 先根据现有设置和用户选择制定计划，再准备目标存储、按需复制配置，最后发布本机的 `settings.json`。之后才执行可选的 Skill 安装，因此安装失败时设置可能已经生效。后续配置命令通过已发布的设置和环境覆盖选择后端。读代码从 `planInit`、`executeInit` 开始。[初始化流程](../internal/workbox/init.go) · [设置与后端选择](../internal/workbox/settings.go)
 
-2. **维护共享配置。** 仓库记录保存来源、默认分支、简介和团队归属；Workbox 按顺序选择仓库，保存目标目录、可选版本提示和初始化脚本。命令读取一致的配置快照，在事务外完成业务校验，需要时用 Git 验证远程分支。写入时适配器比较原快照并原子提交，检测到并发修改就返回冲突。改配置字段从领域模型和命令处理入手；改持久化语义从 `configStore` 的快照与提交契约入手。[模型](../internal/workbox/model.go) · [配置与导入导出](../internal/workbox/config.go) · [团队关系](../internal/workbox/team.go) · [存储接口](../internal/workbox/storage.go) · [SQLite](../internal/workbox/store.go) · [MySQL](../internal/workbox/store_mysql.go)
+2. **维护共享配置。** 仓库记录保存来源、默认分支、简介和团队归属；Workbox 配置保存仓库选择及其检出位置、版本提示、初始化脚本、文档来源和选中的 Skill。数据库 schema 4 支持这些字段。导出含团队文档或 Skill 登记的配置时使用 v2 包。没有新字段的包可继续使用 v1。读取 schema 1–3 时缺失集合按空处理，下一次写入才迁移。SQLite 在事务中迁移，MySQL 在命名锁内完成可重试的 DDL，最后发布版本号。命令读取一致的配置快照，在事务外完成业务校验，需要时用 Git 验证远程分支。写入时适配器比较原快照并原子提交，检测到并发修改就返回冲突。改配置字段从领域模型和命令处理入手；改持久化语义从 `configStore` 的快照与提交契约入手。[模型](../internal/workbox/model.go) · [配置与导入导出](../internal/workbox/config.go) · [团队关系](../internal/workbox/team.go) · [存储接口](../internal/workbox/storage.go) · [SQLite](../internal/workbox/store.go) · [MySQL](../internal/workbox/store_mysql.go)
 
 3. **准备并发布实例。** `plan` 只读配置和检查路径。`create` 在同一父目录暂存仓库清单、显式指定的 GitLab 文档和团队 Skill。文档按项目和分支共享解析出的 SHA；未配置根指引就不生成。Git Skill 登记只读名称，安装时从同一抓取版本展开所选子树；支持 Git 对象过滤的来源可按需传输文件。全部准备完毕后排他 rename，提交后由发布结果类型向 CLI 表达成功，序列化时保留原有 prepared 响应。失败时指出具体项目，修复后可以使用原路径重试。[发布流程](../internal/workbox/workspace.go) · [文档准备](../internal/workbox/documents.go) · [用户 Skill](../internal/workbox/team_skills.go)
 
@@ -40,3 +40,11 @@ flowchart TD
 ## 本仓库的开发工作流
 
 根 AGENTS.md 引导维护者使用仓库级 `workbox-design` 讨论、续写和审阅方案。Skill 指导逐项确认取舍，模板定义 TD 的结构；每个需求在 `docs/TD/` 保留同一份方案。该 Skill 随源码使用，CLI 分发的全局 `workbox` Skill 负责产品操作。[设计 Skill](../.agents/skills/workbox-design/SKILL.md) · [TD 模板](../.agents/skills/workbox-design/TD-template.md)
+
+## 已验证的使用场景
+
+2026-11-13，提交 `40d445b` 在 Ubuntu、macOS 和 MySQL 三项 CI 上通过。仓内回归覆盖文档按 SHA 读取、创建失败后重试、配置迁移和 GitLab 返回部分搜索结果。[CI 记录](https://github.com/MaybeLL/workbox-cli/actions/runs/43353650781) · [端到端测试](../internal/workbox/phase2_test.go)
+
+同一账号在两套独立配置库之间完成导出、导入，在同一 GitLab 个人命名空间的两个私有项目上零克隆搜索，按 commit SHA 读回了两边预期的源码行。随后在同一个需求目录里只检出 consumer，从分析时的提交创建原生 worktree，完成修改、测试并推送测试分支。consumer 基线保持干净，producer 全程通过远程接口读取。
+
+**待团队验证**　由另一位成员导入配置，用自己的凭据访问分属不同 Group 的仓库，核对预期命中以及权限不足时报告的覆盖范围。
