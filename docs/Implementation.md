@@ -36,3 +36,7 @@ flowchart TD
 
 - **观察实际检出。** `status` 直接扫描指定目录，通过本地 Git 读取基线与 worktree 的状态，并核对 worktree 的归属。配置数据库和仓库清单都不参与扫描，因此刚创建的实例可以列有多个配置仓库，同时报告零个本地检出。读代码从 `status` 和 `checkout` 开始。[状态检查](../internal/workbox/status.go)
 - **安装和卸载配套 Skill。** `skill install` 从二进制内嵌资源读取文件，安装到用户 Skill 目录并记录位置与哈希。卸载流程结合安装记录和文件内容确认哪些产物可移除。安装与卸载均可独立于配置数据库运行。[内嵌资源](../skills/embed.go) · [安装](../internal/workbox/skill.go) · [安装记录](../internal/workbox/skill_receipt.go) · [卸载](../internal/workbox/uninstall.go)
+
+## 本仓库的开发工作流
+
+根 AGENTS.md 引导维护者使用仓库级 `workbox-design` 讨论、续写和审阅方案。Skill 指导逐项确认取舍，模板定义 TD 的结构；每个需求在 `docs/TD/` 保留同一份方案。该 Skill 随源码使用，CLI 分发的全局 `workbox` Skill 负责产品操作。[设计 Skill](../.agents/skills/workbox-design/SKILL.md) · [TD 模板](../.agents/skills/workbox-design/TD-template.md)
