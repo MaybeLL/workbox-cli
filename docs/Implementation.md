@@ -39,7 +39,7 @@ flowchart TD
 
 ## 本仓库的开发工作流
 
-根 AGENTS.md 引导维护者使用仓库级 `workbox-design` 讨论、续写和审阅方案。Skill 指导逐项确认取舍，模板定义 TD 的结构；每个需求在 `docs/TD/` 保留同一份方案。该 Skill 随源码使用，CLI 分发的全局 `workbox` Skill 负责产品操作。[设计 Skill](../.agents/skills/workbox-design/SKILL.md) · [TD 模板](../.agents/skills/workbox-design/TD-template.md)
+根 AGENTS.md 引导维护者使用通用 Skill `design-with-context` 讨论、续写和审阅方案。Skill 指导逐项确认取舍，模板定义 TD 的结构；每个需求在 `docs/TD/` 保留同一份方案。该 Skill 随源码使用，CLI 分发的全局 `workbox` Skill 负责产品操作。[设计 Skill](../.agents/skills/design-with-context/SKILL.md) · [TD 模板](../.agents/skills/design-with-context/TD-template.md)
 
 ## 已验证的使用场景
 
