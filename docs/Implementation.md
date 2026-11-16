@@ -49,6 +49,6 @@ flowchart TD
 
 同一账号在两套独立配置库之间完成导出、导入，在同一 GitLab 个人命名空间的两个私有项目上零克隆搜索，按 commit SHA 读回了两边预期的源码行。随后在同一个需求目录里只检出 consumer，从分析时的提交创建原生 worktree，完成修改、测试并推送测试分支。consumer 基线保持干净，producer 全程通过远程接口读取。
 
-2026-11-16，本地 macOS 全量 race 测试覆盖 SQLite、MySQL 8.4、旧库迁移与真实 npx 重试。Linux 容器的全量 race 测试与两平台的安装卸载冒烟测试通过。两个私有 GitLab 项目均通过 URL 追加到空实例，零克隆搜索命中，并按固定 SHA 读回预期源码。独立会话在临时 HOME 安装内嵌 Skill，用本地 Git 测试仓库完成首次导入、直接创建、校验初始化产物和只为 consumer 建立 worktree。复用 consumer 已有开发分支，通过 resolve-ref 验证其尖端与分析提交不同。回归测试覆盖分支删除后同名 tag 仍在、追加重名项目后离线重试、先补依赖再解决导入冲突、已发布 Skill 补写收据，以及 SQLite 和 MySQL 上两人以同一 revision 更新后重读合并。[新工作流回归测试](../internal/workbox/design_workflow_test.go)
+2026-11-16，本地 macOS 全量 race 测试覆盖 SQLite、MySQL 8.4、旧库迁移与真实 npx 重试。Linux 容器的全量 race 测试与两平台的安装卸载冒烟测试通过。两个私有 GitLab 项目均通过 URL 追加到空实例，零克隆搜索命中，并按固定 SHA 读回预期源码。独立会话在临时 HOME 安装内嵌 Skill，用本地 Git 测试仓库完成首次导入、直接创建、校验初始化产物和只为 consumer 建立 worktree。复用 consumer 已有开发分支，通过 resolve-ref 验证其尖端与分析提交不同。回归测试覆盖分支删除后同名 tag 仍在、追加重名项目后离线重试、先补依赖再解决导入冲突、已发布 Skill 补写收据，以及 SQLite 和 MySQL 上两人以同一 revision 更新后重读合并。提交 `6c8d6aa` 的 Ubuntu、macOS 和 MySQL 三项 CI 均已通过。[CI 记录](https://github.com/MaybeLL/workbox-cli/actions/runs/43818364631) · [新工作流回归测试](../internal/workbox/design_workflow_test.go)
 
 **待团队验证**　由另一位成员导入配置，用自己的凭据访问分属不同 Group 的仓库，核对预期命中以及权限不足时报告的覆盖范围。

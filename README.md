@@ -87,12 +87,11 @@ SH
 
 workbox workbox-config add analysis \
   --repos-file repos.json --init-script-file init.sh
-workbox plan --config analysis --path ./analysis-one
 workbox create --config analysis --path ./analysis-one --format json
 workbox status --path ./analysis-one
 ```
 
-The destination must be new and its parent writable. Plan checks the configuration and path locally. Create reads its own configuration snapshot and returns `state: "prepared"`, the configured repositories and the original `init_script` for separate review. Scripts that use a checkout need that repository to be requested and prepared first. See the [handoff guide](skills/workbox/references/agent-guide.md).
+The destination must be new and its parent writable. For an optional preview before creation, run `workbox plan --config analysis --path ./analysis-one` to check the configuration and path locally. Create reads its own configuration snapshot and returns `state: "prepared"`, the configured repositories and the original `init_script` for separate review. Scripts that use a checkout need that repository to be requested and prepared first. See the [handoff guide](skills/workbox/references/agent-guide.md).
 
 ```text
 analysis-one/
@@ -106,10 +105,17 @@ Start the Agent at the root. It can search and read code remotely from the liste
 
 Use `workbox auth gitlab set --host gitlab.example.com --token-file FILE` after init, or pass `--gitlab-host` and `--gitlab-token-file` during init. Use a personal token with read API access. Credentials and SSH aliases stay on the user's machine.
 
-Pass a JSON array to `workbox workbox-config add/update NAME --docs-file FILE`. An empty array clears the selection. For example:
+For a new configuration, use `workbox workbox-config add NAME --docs-file docs.json`. For the existing `analysis` configuration, save the complete document selection to `docs.json` (an empty array clears it):
 
 ```json
 [{"project_url":"https://gitlab.example.com/team/handbook","ref":{"type":"branch","value":"main"},"source_path":"rules/review.md","target_path":"AGENTS.md"}]
+```
+
+Read the current revision and apply the document selection (the shell examples use `jq`):
+
+```sh
+revision=$(workbox workbox-config show analysis --format json | jq -er '.data.workspace_config.revision')
+workbox workbox-config update analysis --revision "$revision" --docs-file docs.json
 ```
 
 Each create resolves a project's branch once and copies the selected files verbatim. A commit ref pins a version across creates. The root AGENTS.md exists only when explicitly configured.
@@ -117,7 +123,8 @@ Each create resolves a project's branch once and copies the selected files verba
 ```sh
 workbox skill-config add --git-url https://gitlab.example.com/team/skills.git --subdir analysis
 workbox skill-config add --installer npx-skills https://github.com/mattpocock/skills --skill grill-me
-workbox workbox-config add-skill analysis grill-me --revision REV
+revision=$(workbox workbox-config show analysis --format json | jq -er '.data.workspace_config.revision')
+workbox workbox-config add-skill analysis grill-me --revision "$revision"
 workbox create --config analysis --path ./demand
 workbox search --path ./demand --query CreateOrder --repo api --ref api=release/11 --format json
 workbox read --path ./demand --repo api --file pkg/order.go --ref release/11 --lines 12-25
@@ -140,7 +147,15 @@ lowercase commit SHA (40 hex characters for SHA-1, 64 for SHA-256):
 ]
 ```
 
-Save this array with `workbox-config add/update NAME --repos-file FILE`.
+Both repositories must already be registered. For a new configuration, use
+`workbox workbox-config add NAME --repos-file repos.json`. To replace the
+selection in the existing `analysis` configuration, save the array to `repos.json` and run:
+
+```sh
+revision=$(workbox workbox-config show analysis --format json | jq -er '.data.workspace_config.revision')
+workbox workbox-config update analysis --revision "$revision" --repos-file repos.json
+```
+
 This only changes that Workbox configuration; shared Repo defaults and existing
 checkouts remain unchanged. Updating the array with `ref` omitted restores
 inheritance. Explicit null, tags, short SHAs, revision expressions and unknown
@@ -152,9 +167,9 @@ Plan and create report the configured default branch and optional ref override. 
 
 ## Commands
 
-Existing scripts may still use the former `workspace-config` and `workspace plan/create/status` spellings. Stored configurations, export files and JSON response keys remain compatible.
+Existing scripts may still use the former `workspace-config` and `workspace plan/create/status` spellings. These aliases use the same revision requirement for updates. Stored configurations, export files and JSON response keys remain compatible.
 
-All commands, including help and version, accept `--format json` anywhere in the command. Default output is readable text.
+Use `workbox --help` for the full command list. All commands, including help and version, accept `--format json` anywhere in the command. Default output is readable text.
 
 ```text
 workbox init [--backend sqlite|mysql] [--mysql-dsn-file FILE]
@@ -166,14 +181,18 @@ workbox repo-config show NAME
 workbox repo-config update NAME [--url URL] [--default-branch BRANCH] [--summary TEXT]
 workbox repo-config remove NAME
 
-workbox workbox-config add NAME [--repos-file FILE] [--init-script-file FILE]
+workbox workbox-config add NAME [--docs-file FILE] [--repos-file FILE] [--init-script-file FILE]
 workbox workbox-config list
 workbox workbox-config show NAME
-workbox workbox-config update NAME --revision REV [--repos-file FILE] [--init-script-file FILE]
+workbox workbox-config update NAME --revision REV [--docs-file FILE] [--repos-file FILE] [--init-script-file FILE]
 workbox workbox-config remove NAME
 
 workbox plan --config NAME --path DIR
 workbox create --config NAME --path DIR
+workbox add-repo --path DIR (--url URL [--name NAME] | --repo REGISTERED_NAME) [--target-dir REL] [--branch BRANCH | --commit SHA]
+workbox resolve-ref --path DIR --repo NAME [--ref REF]
+workbox search --path DIR --query TERM [--repo NAME]... [--ref NAME=REF]...
+workbox read --path DIR --repo NAME --file PATH [--ref REF] [--lines START-END]
 workbox status --path DIR
 workbox config export --output FILE
 workbox config import --input FILE
@@ -187,7 +206,7 @@ Names match `[a-z0-9][a-z0-9._-]{0,63}`. Updates need at least one field, preser
 
 Repository URLs support HTTPS, `ssh://user@host/path`, and SCP-style `git@host:path`, across hosted or self-hosted Git services. Local paths and credential-bearing URLs are rejected. Passwords/tokens must use Git's credential facilities. Store no secrets or sensitive data in configurations or scripts. Raw Git stderr is deliberately excluded from errors to avoid exposing authentication secrets.
 
-Every add, update and nonempty import checks the exact remote `refs/heads/BRANCH`. Tags do not count and no default branch is guessed. Ambiguous inaccessible/missing remotes return `REMOTE_UNVERIFIABLE`; Git's generic access denial is not evidence of nonexistence. Queries time out after 60 seconds, and other Git operations after 60 seconds. All Git operations are noninteractive; no automatic retries occur.
+The `repo-config add` and `repo-config update` commands verify the configured default branch against the exact remote `refs/heads/BRANCH`. Import performs this check for each business repository in the package. Selecting or removing an already registered Skill uses only the configuration store. Ambiguous inaccessible/missing remotes return `REMOTE_UNVERIFIABLE`; Git's generic access denial is not evidence of nonexistence. Queries time out after 60 seconds, and other Git operations after 60 seconds. All Git operations are noninteractive; no automatic retries occur.
 
 Each Workbox repository entry requires `repo` and `target_dir` and accepts an optional `ref`. Repository selections cannot repeat. Target paths use `/`, must be relative, and cannot contain empty, `.`, `..`, `.git`, or `.workbox` segments. Backslashes, drive paths, and ancestor/descendant or case-folded overlaps are rejected. The top-level `AGENTS.md` name and paths below it are reserved (case-insensitive); repository targets cannot overlap the Workbox instruction file. Referenced repository configurations cannot be removed; the error lists the Workbox configurations using them. Removing a Workbox configuration never removes a directory.
 
