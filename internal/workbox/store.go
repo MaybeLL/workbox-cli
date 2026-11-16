@@ -85,7 +85,7 @@ func sqliteSchema(ctx context.Context, tx *sql.Tx) (bool, *Failure) {
 	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return false, dbError(err)
 	}
-	if version >= 1 && version <= 4 {
+	if version >= 1 && version <= 5 {
 		return true, nil
 	}
 	if version == 0 {
@@ -184,12 +184,19 @@ func (s *sqliteStore) commit(ctx context.Context, expected, next snapshot) *Fail
 			}
 		}
 	}
-	current, e := readSnapshot(ctx, tx, 4)
+	if version < 5 {
+		for _, q := range []string{"ALTER TABLE workspace_config ADD COLUMN generation INTEGER NOT NULL DEFAULT 0", "PRAGMA user_version=5"} {
+			if _, err := tx.ExecContext(ctx, q); err != nil {
+				return dbError(err)
+			}
+		}
+	}
+	current, e := readSnapshot(ctx, tx, 5)
 	if e != nil {
 		return e
 	}
 	if !sameSnapshot(current, expected) {
-		return fail("CONFIG_CONFLICT", "Configuration changed during validation; retry the command")
+		return snapshotChanged()
 	}
 	if e := writeSnapshot(ctx, tx, current, next); e != nil {
 		return e

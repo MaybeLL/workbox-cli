@@ -262,3 +262,17 @@ func (p gitlabProject) resolve(ctx context.Context, endpoint string, reply any, 
 	}
 	return commit.ID, nil
 }
+
+func (p gitlabProject) defaultBranch(ctx context.Context) (string, *Failure) {
+	raw, e := p.client.gitlabGet(ctx, p.host, p.api)
+	if e != nil {
+		return "", e
+	}
+	var meta struct {
+		Branch string `json:"default_branch"`
+	}
+	if json.Unmarshal(raw, &meta) != nil || meta.Branch == "" {
+		return "", invalid("Project has no default branch")
+	}
+	return meta.Branch, nil
+}

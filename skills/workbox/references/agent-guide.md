@@ -6,7 +6,7 @@ Before storage-dependent commands, complete CLI initialization using the `SKILL.
 
 ## Initialize a prepared Workbox
 
-1. Call `workbox create --config NAME --path DIR --format json`. Continue only if it returns `ok: true` and `data.state: "prepared"`. Retain this response's `workspace_path`, repository list, and `init_script`. Do not call `show` to choose a possibly newer script for this create.
+1. Use the original create response if this instance has already been prepared. For a new instance call `workbox create --config NAME --path DIR --format json`. Continue only if it returns `ok: true` and `data.state: "prepared"`. Retain this response's `workspace_path`, repository list, and `init_script`. Do not call `show` to choose a possibly newer script for this create.
 2. For scripts needing local source, confirm the user has requested the relevant checkouts before running them. For each existing baseline, inspect its HEAD and `git status --porcelain=v1 --untracked-files=all --ignore-submodules=none`. Record the results. The baseline's working files and HEAD must not be changed by initialization or development.
 3. For empty script text, there are no additional script tasks. For nonempty text, inspect the shebang, interpreter, dependencies, intended artifacts and the user's existing authorization. Do not assume that saving a script authorizes every action in its body. Apply the user's existing permissions; this tool adds no approval engine.
 4. If a temporary script file is needed, create it under `INSTANCE_DIR/.workbox/tmp/`. Use only the **returned script text**, run the chosen interpreter with the Workbox root as cwd, and set `WORKBOX_WORKSPACE_ROOT` to that absolute root. The CLI creates no executable script file. Remove only temporary files you created.
@@ -17,19 +17,9 @@ Distinguish `prepared` from initialized: directory preparation can succeed while
 
 ## Develop in a native Git worktree
 
-There are no `workbox worktree` commands in this version. Use native Git only after the user specifies the baseline repository, **new** development branch and **new** directory name.
+Use native Git under the same instance. A request for a worktree includes obtaining the missing baseline checkout at the configured target_dir. Keep the baseline's working files and HEAD unchanged.
 
-1. Use the Workbox repository list to find the chosen baseline. A request to create its worktree includes preparing a missing checkout at its target_dir at the agreed version. Create the real .workbox/worktree directory if needed. Require a single directory name directly below `INSTANCE_DIR/.workbox/worktree/`. Reject nested paths, `.`, `..`, links, escapes and existing entries; validate the container's real path. Do not use a separate/nested Workbox.
-2. Validate the new branch with Git branch-name rules and verify it does not already exist in the baseline repository. Do not reuse an existing branch.
-3. Require the baseline to be clean using `git status --porcelain=v1 --untracked-files=all --ignore-submodules=none`. Reject staged, unstaged, or untracked changes. Do not transfer dirty files.
-4. Read `git rev-parse --verify HEAD` and retain the full resolved commit. Immediately before mutation, recheck baseline clean state, HEAD, branch absence, and target conditions. Stop if anything changed.
-5. Create from the explicit captured commit, substituting the validated inputs as separate arguments:
-
-   ```text
-   git -C BASELINE worktree add -b NEW_BRANCH INSTANCE_DIR/.workbox/worktree/NEW_DIRECTORY FULL_COMMIT
-   ```
-
-   Do not substitute `HEAD` or a branch name for `FULL_COMMIT`, fetch, force, reset, reuse a branch or clean/overwrite any existing directory.
-6. Verify the new worktree's branch and complete starting commit, and verify the baseline's work files and HEAD remain unchanged. Git's shared refs and administrative records do change; report this accurately. `workbox status --path INSTANCE_DIR --format json` shows both checkouts separately and verifies worktree ownership.
-
-Make development changes and place development outputs in the new worktree. On failure, retain branch/directory evidence and report it; automatic branch/directory removal, old branch reuse, baseline synchronization and arbitrary starting points are outside this MVP.
+1. Identify the selected repository and starting commit. When analysis used a moving branch and recorded commit A, query only its tip with `workbox resolve-ref --path DIR --repo NAME --ref BRANCH --format json`. If it now points to B, report the repository, branch, A and B; wait for the user's choice before reading B's source or creating a worktree. For B, verify the affected conclusions against B before developing. For A, develop directly from A. A configured fixed commit is already a concrete baseline. If the tip or analysis SHA is unknown, report the gap instead of claiming the commits match.
+2. For the new branch and directory, honor each explicit name, then repository conventions, then choose an unused task-derived name. Check Git branch validity, branch existence and destination availability. Auto-generated collisions get a fresh name; for a collision with a user-specified name explain and ask. Use a single directory name directly under the real `.workbox/worktree/`. Reject symlinks, escapes and existing entries.
+3. Verify baseline cleanliness (including untracked files) and capture its HEAD and working-file state. If the selected commit object is missing, fetch the necessary object using the configured repository without switching or resetting the baseline. If unavailable, report the failure. Resolve the selected commit to its full SHA. Immediately before mutation recheck the baseline and destination.
+4. Run `git -C BASELINE worktree add -b NEW_BRANCH INSTANCE_DIR/.workbox/worktree/NEW_DIRECTORY FULL_COMMIT`. Verify the new branch and commit, confirm the baseline's HEAD and files are intact, and report the branch and full path. `workbox status --path INSTANCE_DIR` inspects both checkouts. On failure retain any existing branch or directory and report its state.

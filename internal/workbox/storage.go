@@ -56,3 +56,9 @@ func commitFailure(err error) *Failure {
 	}
 	return fail("COMMIT_OUTCOME_UNKNOWN", "Database commit outcome is unknown; reconnect and reread the target before retrying")
 }
+
+func snapshotChanged() *Failure {
+	e := fail("CONFIG_CONFLICT", "Configuration changed during validation; retry the command")
+	e.Details["reason"] = "snapshot_changed"
+	return e
+}

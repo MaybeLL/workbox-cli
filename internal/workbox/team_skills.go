@@ -364,39 +364,3 @@ func (a *app) skillCatalog(ctx context.Context, c command) (any, *Failure) {
 	next.Skills[v.Name] = v
 	return map[string]any{"skill_config": v}, a.store.commit(ctx, s, next)
 }
-
-func (a *app) selectSkill(ctx context.Context, c command) (any, *Failure) {
-	s, e := a.store.snapshot(ctx)
-	if e != nil {
-		return nil, e
-	}
-	row, ok := s.Workspaces[c.name]
-	if !ok {
-		return nil, missing("workspace_config", c.name)
-	}
-	name := c.flags["skill"]
-	if _, ok := s.Skills[name]; !ok {
-		return nil, missing("skill_config", name)
-	}
-	next := s.clone()
-	row = next.Workspaces[c.name]
-	idx := slices.Index(row.Skills, name)
-	if c.action == "add-skill" && idx < 0 {
-		row.Skills = append(row.Skills, name)
-	}
-	if c.action == "remove-skill" && idx >= 0 {
-		row.Skills = slices.Delete(row.Skills, idx, idx+1)
-		if len(row.Skills) == 0 {
-			row.Skills = nil
-		}
-	}
-	w, e := next.public(row)
-	if e != nil {
-		return nil, e
-	}
-	if e := validateWorkspace(w); e != nil {
-		return nil, e
-	}
-	next.Workspaces[c.name] = row
-	return map[string]any{"workspace_config": w}, a.store.commit(ctx, s, next)
-}

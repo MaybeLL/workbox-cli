@@ -260,26 +260,40 @@ func acquireInitLock(ctx context.Context, root string) (func(), *Failure) {
 		f.Close()
 		return nil, fail("CONFIG_INVALID", "Unsafe init lock file")
 	}
+	return lockFile(ctx, f)
+}
+
+// Lock the stable directory inode so releasing the lock needs no file removal.
+func lockDirectory(ctx context.Context, root *os.Root) (func(), *Failure) {
+	f, err := root.Open(".")
+	if err != nil {
+		return nil, ioFailure("Cannot open directory for locking")
+	}
+	return lockFile(ctx, f)
+}
+
+func lockFile(ctx context.Context, f *os.File) (func(), *Failure) {
+	fd := int(f.Fd())
 	deadline := time.NewTimer(5 * time.Second)
 	defer deadline.Stop()
 	tick := time.NewTicker(25 * time.Millisecond)
 	defer tick.Stop()
 	for {
-		err = unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB)
+		err := unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB)
 		if err == nil {
 			return func() { _ = unix.Flock(fd, unix.LOCK_UN); _ = f.Close() }, nil
 		}
 		if err != unix.EWOULDBLOCK && err != unix.EAGAIN {
 			f.Close()
-			return nil, ioFailure("Could not lock initialization")
+			return nil, ioFailure("Could not acquire operation lock")
 		}
 		select {
 		case <-ctx.Done():
 			f.Close()
-			return nil, fail("INTERRUPTED", "Initialization interrupted")
+			return nil, fail("INTERRUPTED", "Operation interrupted")
 		case <-deadline.C:
 			f.Close()
-			return nil, fail("CONFIG_CONFLICT", "Another init is running; retry later")
+			return nil, fail("CONFIG_CONFLICT", "Another operation holds the lock; retry later")
 		case <-tick.C:
 		}
 	}

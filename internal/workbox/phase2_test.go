@@ -71,7 +71,7 @@ func TestTeamDocsAtomicPublication(t *testing.T) {
 	assertAbsent(t, filepath.Join(target, ".agents"))
 	docs[1].Target = ".agents/skills/bad.md"
 	raw, _ = json.Marshal(docs)
-	f.call(2, "workbox-config", "update", "analysis", "--docs-file", f.file("bad.json", string(raw)))
+	f.call(2, "workbox-config", "update", "analysis", "--revision", f.revision("analysis"), "--docs-file", f.file("bad.json", string(raw)))
 }
 func TestSkillOnlyOfflineRoundTrip(t *testing.T) {
 	for _, factory := range storeFactories() {
@@ -92,12 +92,12 @@ func TestSkillOnlyOfflineRoundTrip(t *testing.T) {
 				t.Fatal(result)
 			}
 			f.workspace([]Ref{}, "")
-			f.call(0, "workbox-config", "add-skill", "analysis", "grill-me")
+			f.call(0, "workbox-config", "add-skill", "analysis", "--revision", f.revision("analysis"), "grill-me")
 			f.call(2, "skill-config", "remove", "grill-me")
 			target := filepath.Join(f.root, "missing-npx")
 			f.call(1, "create", "--config", "analysis", "--path", target)
 			assertAbsent(t, target)
-			f.call(0, "workbox-config", "remove-skill", "analysis", "grill-me")
+			f.call(0, "workbox-config", "remove-skill", "analysis", "--revision", f.revision("analysis"), "grill-me")
 			f.call(0, "create", "--config", "analysis", "--path", target)
 			assertAbsent(t, filepath.Join(target, ".agents"))
 		})
@@ -136,7 +136,7 @@ func TestGitSkillSelection(t *testing.T) {
 			t.Setenv("GIT_CONFIG_VALUE_3", "false")
 			f.call(0, "skill-config", "add", "--git-url", "https://example.test/api.git", "--subdir", "guides", "--branch", "develop")
 			f.workspace([]Ref{}, "")
-			f.call(0, "workbox-config", "add-skill", "analysis", "fixture")
+			f.call(0, "workbox-config", "add-skill", "analysis", "--revision", f.revision("analysis"), "fixture")
 			root := filepath.Join(f.root, "demand")
 			f.call(0, "create", "--config", "analysis", "--path", root)
 			b, err := os.ReadFile(filepath.Join(root, ".agents/skills/fixture/refs/note"))
@@ -163,7 +163,7 @@ func TestGitSkillVerifiesMaterializedName(t *testing.T) {
 	t.Setenv("GIT_CONFIG_VALUE_2", "sed s/demo/other/")
 	f.call(0, "skill-config", "add", "--git-url", "https://example.test/api.git")
 	f.workspace([]Ref{}, "")
-	f.call(0, "workbox-config", "add-skill", "analysis", "demo")
+	f.call(0, "workbox-config", "add-skill", "analysis", "--revision", f.revision("analysis"), "demo")
 	root := filepath.Join(f.root, "instance")
 	r := f.call(2, "create", "--path", root, "--config", "analysis")
 	if object(r["error"])["message"] != "Registered Skill demo materialized as other" {
@@ -188,8 +188,8 @@ func TestReadAndSearchInstance(t *testing.T) {
 			}
 			w.Header().Set("X-Next-Page", "2")
 			fmt.Fprint(w, `[{"path":"f","ref":"release","startline":1,"data":"test"}]`)
-		case strings.Contains(r.URL.Path, "/commits/"):
-			fmt.Fprintf(w, `{"id":"%s"}`, sha)
+		case strings.HasSuffix(r.URL.Path, "/branches/main"):
+			fmt.Fprintf(w, `{"commit":{"id":"%s"}}`, sha)
 		case strings.HasSuffix(r.URL.Path, "/raw"):
 			if r.URL.Query().Get("ref") != sha {
 				t.Error("read not pinned")
@@ -331,13 +331,15 @@ func TestPhase2PortableSources(t *testing.T) {
 			docs := `[{"project_url":"https://gitlab.example/team/docs","source_path":"rules.md","target_path":"AGENTS.md","ref":{"type":"branch","value":"release/v2"}}]`
 			f.call(0, "skill-config", "add", "--installer", "npx-skills", "https://github.com/mattpocock/skills", "--skill", "grill-me")
 			f.call(0, "workbox-config", "add", "example", "--docs-file", f.file("docs.json", docs), "--init-script-file", f.file("script.sh", "#!/bin/sh\necho example"))
-			f.call(0, "workbox-config", "add-skill", "example", "grill-me")
+			f.call(0, "workbox-config", "add-skill", "example", "--revision", f.revision("example"), "grill-me")
 			expected := object(object(f.call(0, "workbox-config", "show", "example")["data"])["workspace_config"])
 			pkg := filepath.Join(f.root, "portable.json")
 			f.call(0, "config", "export", "--output", pkg)
 			f.app.store = &sqliteStore{path: filepath.Join(f.root, "receiver", "config.db")}
 			f.call(0, "config", "import", "--input", pkg)
 			actual := object(object(f.call(0, "workbox-config", "show", "example")["data"])["workspace_config"])
+			delete(actual, "revision")
+			delete(expected, "revision")
 			delete(actual, "id")
 			delete(expected, "id")
 			if !jsonEqual(expected, actual) {
@@ -400,7 +402,7 @@ func TestRealNPXRetrySameInstance(t *testing.T) {
 	before := skillTree(t, home)
 	f.call(0, "skill-config", "add", "--installer", "npx-skills", "https://example.test/api.git", "--skill", "demo")
 	f.workspace([]Ref{}, "")
-	f.call(0, "workbox-config", "add-skill", "analysis", "demo")
+	f.call(0, "workbox-config", "add-skill", "analysis", "--revision", f.revision("analysis"), "demo")
 	target := filepath.Join(f.root, "demand")
 	create := []string{"create", "--path", target, "--config", "analysis"}
 	originalPath := os.Getenv("PATH")

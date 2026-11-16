@@ -87,7 +87,7 @@ func TestTeamMigration(t *testing.T) {
 			f.app.store = s
 			f.repo("api")
 			db := storeDB(t, s)
-			for _, q := range []string{"ALTER TABLE workspace_config DROP COLUMN docs", "ALTER TABLE workspace_config DROP COLUMN skills", "DROP TABLE skill_config", "DROP TABLE team_config", "ALTER TABLE repo_config DROP COLUMN team_ids"} {
+			for _, q := range []string{"ALTER TABLE workspace_config DROP COLUMN generation", "ALTER TABLE workspace_config DROP COLUMN docs", "ALTER TABLE workspace_config DROP COLUMN skills", "DROP TABLE skill_config", "DROP TABLE team_config", "ALTER TABLE repo_config DROP COLUMN team_ids"} {
 				if _, err := db.Exec(q); err != nil {
 					t.Fatal(err)
 				}
@@ -112,7 +112,7 @@ func TestTeamMigration(t *testing.T) {
 			if after.Repos["api"].ID != before.Repos["api"].ID || len(after.Repos["api"].TeamIDs) != 1 {
 				t.Fatal(after)
 			}
-			if err := db.QueryRow(versionQuery).Scan(&version); err != nil || version != 4 {
+			if err := db.QueryRow(versionQuery).Scan(&version); err != nil || version != 5 {
 				t.Fatal(version, err)
 			}
 		})

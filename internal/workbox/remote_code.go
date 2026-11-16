@@ -2,11 +2,9 @@ package workbox
 
 import (
 	"context"
-
 	"encoding/json"
 	"net/url"
 	"os"
-
 	"slices"
 	"strconv"
 	"strings"
@@ -38,7 +36,7 @@ func (a *app) remoteCode(ctx context.Context, c command) (any, *Failure) {
 		return nil, invalid("Invalid or missing .workbox/repos.json")
 	}
 	selected := c.repos
-	if c.entity == "read" {
+	if c.entity != "search" {
 		selected = []string{c.flags["repo"]}
 	}
 	byName := map[string]workspaceRepo{}
@@ -65,23 +63,35 @@ func (a *app) remoteCode(ctx context.Context, c command) (any, *Failure) {
 	results := []searchResult{}
 	for _, name := range selected {
 		r := byName[name]
-		ref := r.DefaultBranch
+		selection := BaselineRef{Type: "branch", Value: r.DefaultBranch}
 		if r.Ref != nil {
-			ref = r.Ref.Value
+			selection = *r.Ref
 		}
+		ref := selection.Value
 		if v := c.overrides[name]; v != "" {
 			ref = v
 		}
 		project, e := a.gitlabProject(r.URL)
-		if c.entity == "read" {
+		if c.entity != "search" {
 			if e != nil {
 				e.Details["repo"] = name
 				return nil, e
 			}
-			if v := c.flags["ref"]; v != "" {
-				ref = v
+			if c.entity == "read" && !safeRelative(c.flags["file"]) {
+				return nil, invalid("Expected a file path")
 			}
-			return project.readCode(ctx, name, ref, c.flags["file"], c.flags["lines"])
+			override := c.flags["ref"]
+			if override != "" {
+				ref = override
+			}
+			sha, e := project.resolveCodeVersion(ctx, selection, override, c.entity == "resolve-ref")
+			if e != nil {
+				return nil, e
+			}
+			if c.entity == "resolve-ref" {
+				return map[string]string{"repo": name, "ref": ref, "commit": sha}, nil
+			}
+			return project.readCode(ctx, name, sha, c.flags["file"], c.flags["lines"])
 		}
 		row := searchResult{Repo: name, Ref: ref, Coverage: "uncovered", Hits: []codeHit{}}
 		if e == nil {
@@ -143,14 +153,24 @@ func (p gitlabProject) search(ctx context.Context, term string, row *searchResul
 	row.Coverage = "indexed_results"
 	return nil
 }
-func (p gitlabProject) readCode(ctx context.Context, name, ref, file, lines string) (any, *Failure) {
-	if !safeRelative(file) || ref == "" {
-		return nil, invalid("Expected a file path and ref")
+
+// A declared branch can only be resolved by the branches API. For a different,
+// explicitly supplied ref, read retains GitLab's generic ref lookup, while a
+// tip check requires a live branch unless the caller supplied a pinned SHA.
+func (p gitlabProject) resolveCodeVersion(ctx context.Context, selection BaselineRef, override string, checkTip bool) (string, *Failure) {
+	if override != "" && override != selection.Value {
+		if checkTip && !commitSHA.MatchString(override) {
+			return p.resolveBranch(ctx, override)
+		}
+		return p.resolveRef(ctx, override)
 	}
-	sha, e := p.resolveRef(ctx, ref)
-	if e != nil {
-		return nil, e
+	if selection.Type == "branch" {
+		return p.resolveBranch(ctx, selection.Value)
 	}
+	return p.resolveRef(ctx, selection.Value)
+}
+
+func (p gitlabProject) readCode(ctx context.Context, name, sha, file, lines string) (any, *Failure) {
 	b, e := p.fileAt(ctx, file, sha)
 	if e != nil {
 		return nil, e

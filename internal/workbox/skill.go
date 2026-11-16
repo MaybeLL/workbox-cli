@@ -88,6 +88,26 @@ func existingSkill(parent *os.Root, files map[string][]byte) (bool, *Failure) {
 	return true, nil
 }
 
+// A complete current bundle can be adopted; a different tree must match its receipt.
+func inspectInstall(parent *os.Root, dir string, files map[string][]byte) (bool, *uninstallSkill, *Failure) {
+	exists, conflict := existingSkill(parent, files)
+	if conflict == nil || conflict.Code != "SKILL_CONFLICT" {
+		return exists, nil, conflict
+	}
+	hashes, e := installedHashes(dir)
+	if e != nil {
+		return true, nil, e
+	}
+	if hashes == nil {
+		return true, nil, conflict
+	}
+	old, e := inspectRemoval(filepath.Join(dir, "workbox"), hashes)
+	if e != nil || old.State != "pending" {
+		return true, nil, conflict
+	}
+	return true, old, nil
+}
+
 func installSkill(ctx context.Context, flags map[string]string) (data any, failure *Failure) {
 	raw, custom := flags["path"]
 	if custom && strings.TrimSpace(raw) == "" {
@@ -125,12 +145,30 @@ func installSkill(ctx context.Context, flags map[string]string) (data any, failu
 		return nil, ioFailure("Could not open the skills directory")
 	}
 	defer parent.Close()
+	unlock, e := lockSkillState(ctx)
+	if e != nil {
+		return nil, e
+	}
+	defer unlock()
 	result := map[string]any{"skill": "workbox", "path": target, "state": "unchanged", "next_step": "Use $workbox in your next Codex message; restart Codex if it does not appear"}
-	if exists, e := existingSkill(parent, files); exists || e != nil {
-		if e == nil {
-			e = recordSkill(dir, files)
+	recordPublished := func() (any, *Failure) {
+		if e := recordSkill(dir, files); e != nil {
+			result["publication"] = "published"
+			result["receipt"] = "failed"
+			result["next_step"] = "Repair the installation record and rerun the same skill install command"
+			result["retry_args"] = []string{"workbox", "skill", "install", "--path", dir}
+			e.Message = "Current Skill files are installed but the receipt was not saved: " + e.Message
+			e.Data = result
+			return result, e
 		}
-		return result, e
+		return result, nil
+	}
+	exists, old, e := inspectInstall(parent, dir, files)
+	if e != nil {
+		return nil, e
+	}
+	if exists && old == nil {
+		return recordPublished()
 	}
 	id, e := uuid()
 	if e != nil {
@@ -140,7 +178,12 @@ func installSkill(ctx context.Context, flags map[string]string) (data any, failu
 	if err := parent.Mkdir(stage, 0755); err != nil {
 		return nil, ioFailure("Could not stage the skill")
 	}
-	defer parent.RemoveAll(stage)
+	cleanupStage := true
+	defer func() {
+		if cleanupStage {
+			_ = parent.RemoveAll(stage)
+		}
+	}()
 	root, err := parent.OpenRoot(stage)
 	if err != nil {
 		return nil, ioFailure("Could not open the staged skill")
@@ -159,6 +202,29 @@ func installSkill(ctx context.Context, flags map[string]string) (data any, failu
 	}
 	if ctx.Err() != nil {
 		return nil, fail("INTERRUPTED", "Operation interrupted")
+	}
+	if old != nil {
+		current, e := inspectRemoval(target, old.files)
+		if e != nil || current.State != "pending" || !os.SameFile(current.info, old.info) {
+			return nil, fail("SKILL_CONFLICT", "Installed Skill changed before upgrade")
+		}
+		if err := exchangeDirs(parent, stage, "workbox"); err != nil {
+			return nil, ioFailure("Could not publish Skill upgrade")
+		}
+		// The exchange placed the previous installation in stage. Preserve anything
+		// that raced the final check, including user files in a replaced directory.
+		cleanupStage = false
+		moved, e := inspectRemoval(filepath.Join(dir, stage), old.files)
+		if e != nil || moved.State != "pending" || !os.SameFile(moved.info, old.info) {
+			if err := exchangeDirs(parent, stage, "workbox"); err != nil {
+				return nil, ioFailure("Skill changed during upgrade; inspect retained directory " + stage)
+			}
+			cleanupStage = true
+			return nil, fail("SKILL_CONFLICT", "Skill changed during upgrade")
+		}
+		cleanupStage = true
+		result["state"] = "upgraded"
+		return recordPublished()
 	}
 	// Publish the complete tree without ever replacing an existing target.
 	// os.Root.Rename cannot portably replace even an empty reserved directory.

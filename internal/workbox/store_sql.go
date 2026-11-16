@@ -101,6 +101,9 @@ func readSnapshot(ctx context.Context, tx *sql.Tx, version int) (snapshot, *Fail
 			return s, dbError(err)
 		}
 	}
+	if version >= 5 {
+		columns += ",generation"
+	}
 	rows, err = tx.QueryContext(ctx, "SELECT "+columns+" FROM workspace_config ORDER BY name")
 	if err != nil {
 		return s, dbError(err)
@@ -113,6 +116,9 @@ func readSnapshot(ctx context.Context, tx *sql.Tx, version int) (snapshot, *Fail
 		dest := []any{&w.ID, &w.Name, &raw, &w.Script}
 		if version >= 4 {
 			dest = append(dest, &docJSON, &skillJSON)
+		}
+		if version >= 5 {
+			dest = append(dest, &w.Generation)
 		}
 		if err := rows.Scan(dest...); err != nil {
 			return s, dbError(err)
@@ -152,7 +158,7 @@ func insertWorkspace(ctx context.Context, tx *sql.Tx, w workspaceRow) *Failure {
 	raw, _ := json.Marshal(w.Repos)
 	docs, _ := json.Marshal(append([]Document{}, w.Docs...))
 	skills, _ := json.Marshal(append([]string{}, w.Skills...))
-	_, err := tx.ExecContext(ctx, "INSERT INTO workspace_config (id,name,repos,init_script,docs,skills) VALUES (?,?,?,?,?,?)", w.ID, w.Name, string(raw), w.Script, string(docs), string(skills))
+	_, err := tx.ExecContext(ctx, "INSERT INTO workspace_config (id,name,repos,init_script,docs,skills,generation) VALUES (?,?,?,?,?,?,?)", w.ID, w.Name, string(raw), w.Script, string(docs), string(skills), w.Generation)
 	if err != nil {
 		return dbError(err)
 	}

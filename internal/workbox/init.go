@@ -411,6 +411,9 @@ func (a *app) executeInit(ctx context.Context, p *initPlan, result map[string]an
 		data, e := installSkill(ctx, map[string]string{"path": p.parent})
 		if e != nil {
 			skill["state"] = "partial"
+			if outcome, ok := e.Data.(map[string]any); ok {
+				skill["install_result"] = outcome
+			}
 			if e.Code == "SKILL_CONFLICT" {
 				skill["state"] = "failed"
 			}

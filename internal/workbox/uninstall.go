@@ -295,8 +295,7 @@ func removeReceipts(state string, records []receiptFile) *Failure {
 			return ioFailure("Could not remove an installation record")
 		}
 	}
-	// Nonrecursive removal preserves any unrelated state files.
-	_ = os.Remove(state)
+	_ = os.Remove(state) // Only remove an empty directory.
 	return nil
 }
 
@@ -365,6 +364,16 @@ func uninstall(ctx context.Context, binary, invoked string, flags map[string]str
 	result.CLI = cli
 	if e != nil {
 		return nil, e
+	}
+	if ctx.Err() != nil {
+		return nil, fail("INTERRUPTED", "Operation interrupted")
+	}
+	if flags["dry-run"] != "true" {
+		unlock, e := lockSkillState(ctx)
+		if e != nil {
+			return nil, e
+		}
+		defer unlock()
 	}
 	candidates, state, records, e := skillCandidates(flags["skill-path"])
 	if e != nil {

@@ -129,7 +129,7 @@ func mysqlSchemaState(ctx context.Context, conn *sql.Conn) (int, *Failure) {
 		}
 		return 0, dbError(err)
 	}
-	if version < 0 || version > 4 {
+	if version < 0 || version > 5 {
 		return 0, fail("SCHEMA_UNSUPPORTED", "Unsupported MySQL schema version")
 	}
 	complete := func(t map[string]bool) bool {
@@ -170,7 +170,7 @@ func (s *mysqlStore) schemaLock(ctx context.Context, conn *sql.Conn) (func(), *F
 
 func (s *mysqlStore) initialize(ctx context.Context, conn *sql.Conn) *Failure {
 	state, e := mysqlSchemaState(ctx, conn)
-	if e != nil || state == 4 {
+	if e != nil || state == 5 {
 		return e
 	}
 	release, e := s.schemaLock(ctx, conn)
@@ -179,7 +179,7 @@ func (s *mysqlStore) initialize(ctx context.Context, conn *sql.Conn) *Failure {
 	}
 	defer release()
 	state, e = mysqlSchemaState(ctx, conn)
-	if e != nil || state == 4 {
+	if e != nil || state == 5 {
 		return e
 	}
 	if state <= 0 {
@@ -206,7 +206,24 @@ func (s *mysqlStore) initialize(ctx context.Context, conn *sql.Conn) *Failure {
 			return e
 		}
 	}
-	return migrateMySQLDocs(ctx, conn)
+	if state < 4 {
+		if e := migrateMySQLDocs(ctx, conn); e != nil {
+			return e
+		}
+	}
+	var count int
+	if err := conn.QueryRowContext(ctx, "SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='workspace_config' AND COLUMN_NAME='generation'").Scan(&count); err != nil {
+		return dbError(err)
+	}
+	if count == 0 {
+		if _, err := conn.ExecContext(ctx, "ALTER TABLE workspace_config ADD COLUMN generation BIGINT NOT NULL DEFAULT 0"); err != nil {
+			return dbError(err)
+		}
+	}
+	if _, err := conn.ExecContext(ctx, "UPDATE workbox_schema SET version=5 WHERE id=1"); err != nil {
+		return dbError(err)
+	}
+	return nil
 }
 
 func (s *mysqlStore) snapshot(ctx context.Context) (snapshot, *Failure) {
@@ -255,7 +272,7 @@ func (s *mysqlStore) snapshot(ctx context.Context) (snapshot, *Failure) {
 	if err := tx.QueryRowContext(ctx, "SELECT version FROM workbox_schema WHERE id=1").Scan(&version); err != nil {
 		return snapshot{}, dbError(err)
 	}
-	if version < 1 || version > 4 {
+	if version < 1 || version > 5 {
 		return snapshot{}, fail("SCHEMA_UNSUPPORTED", "Unsupported MySQL schema version")
 	}
 	return readSnapshot(ctx, tx, version)
@@ -289,15 +306,15 @@ func (s *mysqlStore) commit(ctx context.Context, expected, next snapshot) *Failu
 	if err := tx.QueryRowContext(ctx, "SELECT version FROM workbox_schema WHERE id=1 FOR UPDATE").Scan(&version); err != nil {
 		return dbError(err)
 	}
-	if version != 4 {
+	if version != 5 {
 		return fail("SCHEMA_UNSUPPORTED", "Unsupported MySQL schema version")
 	}
-	current, e := readSnapshot(ctx, tx, 4)
+	current, e := readSnapshot(ctx, tx, 5)
 	if e != nil {
 		return e
 	}
 	if !sameSnapshot(current, expected) {
-		return fail("CONFIG_CONFLICT", "Configuration changed during validation; retry the command")
+		return snapshotChanged()
 	}
 	if e := writeSnapshot(ctx, tx, current, next); e != nil {
 		return e

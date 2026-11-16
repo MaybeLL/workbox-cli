@@ -53,12 +53,14 @@ const usage = `Usage: workbox COMMAND [--format text|json]
   workbox-config add NAME [--docs-file FILE] [--repos-file FILE] [--init-script-file FILE]
   workbox-config list
   workbox-config show NAME
-  workbox-config update NAME [--docs-file FILE] [--repos-file FILE] [--init-script-file FILE]
+  workbox-config update NAME --revision REV [--docs-file FILE] [--repos-file FILE] [--init-script-file FILE]
   workbox-config remove NAME
   config export --output FILE
   config import --input FILE
   plan --config NAME --path DIR
   create --config NAME --path DIR
+  add-repo --path DIR (--url URL [--name NAME] | --repo NAME) [--target-dir REL] [--branch BRANCH | --commit SHA]
+  resolve-ref --path DIR --repo NAME [--ref REF]
   search --path DIR --query TERM [--repo NAME]... [--ref NAME=REF]...
   read --path DIR --repo NAME --file PATH [--ref REF] [--lines START-END]
   status --path DIR
@@ -66,7 +68,7 @@ const usage = `Usage: workbox COMMAND [--format text|json]
   skill-config add --installer npx-skills URL --skill NAME
   skill-config update NAME (same source options as add)
   skill-config list | show NAME | remove NAME
-  workbox-config add-skill|remove-skill NAME SKILL
+  workbox-config add-skill|remove-skill NAME SKILL --revision REV
   skill install [--path SKILLS_DIRECTORY]
   uninstall [--dry-run] [--skill-path SKILLS_DIRECTORY]
   --help
@@ -77,7 +79,7 @@ Scripts are stored and returned to the caller, never executed.
 Create writes .workbox/repos.json and the configured documents and Skills.
 Plan and create do not check out business repositories. target_dir is the requested checkout location.
 Skill install copies the bundled skill to ~/.agents/skills/workbox by default.
---path selects a different skills parent directory. Existing differences are never overwritten.
+--path selects a different skills parent directory. Verified unmodified older installations are upgraded; customized content is preserved.
 Uninstall removes the CLI and unmodified companion skills; configuration and Workbox instances are preserved.
 --dry-run previews uninstall. --skill-path locates a custom skill installed by an older version.
 
@@ -149,7 +151,7 @@ func parse(args []string) (command, *Failure) {
 	}
 	start := 1
 	switch c.entity {
-	case "uninstall", "init", "plan", "create", "status", "search", "read":
+	case "uninstall", "init", "plan", "create", "status", "search", "read", "add-repo", "resolve-ref":
 	default:
 		if len(args) < 2 {
 			return c, bad
@@ -259,6 +261,16 @@ func parse(args []string) (command, *Failure) {
 		required = []string{"config", "path"}
 		allowed["config"] = true
 		allowed["path"] = true
+	case "add-repo":
+		required = []string{"path"}
+		for _, k := range []string{"path", "url", "repo", "name", "target-dir", "branch", "commit"} {
+			allowed[k] = true
+		}
+	case "resolve-ref":
+		required = []string{"path", "repo"}
+		for _, k := range []string{"path", "repo", "ref"} {
+			allowed[k] = true
+		}
 	case "search", "read":
 		allowed["path"] = true
 		allowed["repo"] = true
@@ -281,6 +293,10 @@ func parse(args []string) (command, *Failure) {
 		allowed["path"] = true
 	default:
 		return c, bad
+	}
+	guarded := c.entity == "workbox-config" && (c.action == "update" || c.action == "add-skill" || c.action == "remove-skill")
+	if guarded {
+		allowed["revision"] = true
 	}
 	positional := []string{}
 	literal := false
@@ -351,6 +367,11 @@ func parse(args []string) (command, *Failure) {
 			positional = append(positional, arg)
 		}
 	}
+	if c.entity == "add-repo" {
+		if (c.flags["url"] == "") == (c.flags["repo"] == "") || (c.flags["repo"] != "" && c.flags["name"] != "") || (c.flags["branch"] != "" && c.flags["commit"] != "") {
+			return c, bad
+		}
+	}
 	if c.entity == "search" && strings.TrimSpace(c.flags["query"]) == "" {
 		return c, bad
 	}
@@ -379,6 +400,12 @@ func parse(args []string) (command, *Failure) {
 		} else if c.flags["git-url"] == "" || c.flags["skill"] != "" {
 			return c, bad
 		}
+	}
+	if guarded && c.flags["revision"] == "" {
+		return c, fail("INVALID_ARGUMENTS", "Supply --revision from workbox-config show")
+	}
+	if guarded && c.action == "update" && len(c.flags) == 1 {
+		return c, bad
 	}
 	if needsName {
 		if len(positional) != 1 {
@@ -420,7 +447,10 @@ func (a *app) execute(ctx context.Context, c command) (any, *Failure) {
 		}
 		return uninstall(ctx, binary, os.Args[0], c.flags)
 	}
-	if c.entity == "search" || c.entity == "read" {
+	if c.entity == "add-repo" {
+		return a.appendInstanceRepo(ctx, c)
+	}
+	if c.entity == "search" || c.entity == "read" || c.entity == "resolve-ref" {
 		return a.remoteCode(ctx, c)
 	}
 	if c.entity == "status" {
@@ -437,8 +467,16 @@ func (a *app) execute(ctx context.Context, c command) (any, *Failure) {
 	case "skill-config":
 		return a.skillCatalog(ctx, c)
 	case "repo-config", "workbox-config", "team-config":
-		if c.action == "add-skill" || c.action == "remove-skill" {
-			return a.selectSkill(ctx, c)
+		if c.entity == "workbox-config" && (c.action == "update" || c.action == "add-skill" || c.action == "remove-skill") {
+			change, e := parseWorkspaceChange(c)
+			if e != nil {
+				return nil, e
+			}
+			value, e := updateWorkspace(ctx, a.store, c.name, c.flags["revision"], change)
+			if e != nil {
+				return nil, e
+			}
+			return map[string]any{"workspace_config": value}, nil
 		}
 		if c.entity == "team-config" {
 			return a.teamCRUD(ctx, c)
@@ -471,7 +509,7 @@ func (a *app) run(ctx context.Context, args []string, stdout, stderr io.Writer, 
 			ver = ver || arg == "--version"
 		}
 		if help {
-			data = map[string]any{"usage": usage, "commands": []string{"init", "repo-config add/list/show/update/remove", "team-config add/list/show/update/remove", "workbox-config add/list/show/update/remove/add-skill/remove-skill", "config export/import", "plan", "create", "status", "search", "read", "auth gitlab set/alias set", "skill-config add/list/show/update/remove", "skill install", "uninstall"}}
+			data = map[string]any{"usage": usage, "commands": []string{"init", "repo-config add/list/show/update/remove", "team-config add/list/show/update/remove", "workbox-config add/list/show/update/remove/add-skill/remove-skill", "config export/import", "plan", "create", "status", "search", "read", "add-repo", "resolve-ref", "auth gitlab set/alias set", "skill-config add/list/show/update/remove", "skill install", "uninstall"}}
 		} else if ver && len(clean) == 1 {
 			data = map[string]string{"program": "workbox", "version": version}
 		} else {

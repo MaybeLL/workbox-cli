@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 )
 
 type Failure struct {
@@ -62,14 +63,16 @@ type StoredRef struct {
 	Ref    *BaselineRef `json:"ref,omitempty"`
 }
 type Workspace struct {
-	Skills []string   `json:"skills,omitempty"`
-	Docs   []Document `json:"docs,omitempty"`
-	ID     string     `json:"id,omitempty"`
-	Name   string     `json:"name"`
-	Repos  []Ref      `json:"repos"`
-	Script string     `json:"init_script"`
+	Revision string     `json:"revision,omitempty"`
+	Skills   []string   `json:"skills,omitempty"`
+	Docs     []Document `json:"docs,omitempty"`
+	ID       string     `json:"id,omitempty"`
+	Name     string     `json:"name"`
+	Repos    []Ref      `json:"repos"`
+	Script   string     `json:"init_script"`
 }
 type workspaceRow struct {
+	Generation       int64
 	Skills           []string
 	Docs             []Document
 	ID, Name, Script string
@@ -103,7 +106,7 @@ func names[T any](m map[string]T) []string {
 	return result
 }
 func (s snapshot) public(row workspaceRow) (Workspace, *Failure) {
-	w := Workspace{Skills: append([]string(nil), row.Skills...), Docs: append([]Document(nil), row.Docs...), ID: row.ID, Name: row.Name, Script: row.Script, Repos: []Ref{}}
+	w := Workspace{Revision: row.revision(), Skills: append([]string(nil), row.Skills...), Docs: append([]Document(nil), row.Docs...), ID: row.ID, Name: row.Name, Script: row.Script, Repos: []Ref{}}
 	byID := map[string]string{}
 	for _, repo := range s.Repos {
 		byID[repo.ID] = repo.Name
@@ -142,6 +145,7 @@ func (s snapshot) portable() (Package, *Failure) {
 			return p, e
 		}
 		w.ID = ""
+		w.Revision = ""
 		if len(w.Docs) > 0 {
 			p.Version = 2
 		}
@@ -186,4 +190,9 @@ func cloneRef(ref *BaselineRef) *BaselineRef {
 	}
 	v := *ref
 	return &v
+}
+
+func (w workspaceRow) revision() string { return w.ID + ":" + strconv.FormatInt(w.Generation, 10) }
+func staleWorkspace() *Failure {
+	return fail("CONFIG_CONFLICT", "Workbox revision changed; read workbox-config show and merge the requested change")
 }

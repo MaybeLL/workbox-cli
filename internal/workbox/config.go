@@ -169,63 +169,25 @@ func (a *app) crud(ctx context.Context, c command) (any, *Failure) {
 		}
 		return map[string]any{entity: r}, nil
 	}
-	value := Workspace{Name: c.name, Repos: []Ref{}}
-	if exists {
-		value, e = s.public(w)
-		if e != nil {
-			return nil, e
-		}
-	}
-	if file, ok := c.flags["docs-file"]; ok {
-		raw, e := readText(file)
-		if e != nil {
-			return nil, e
-		}
-		value.Docs, e = parseDocuments(raw)
-		if e != nil {
-			return nil, e
-		}
-	}
-	if file, ok := c.flags["repos-file"]; ok {
-		raw, e := readText(file)
-		if e != nil {
-			return nil, e
-		}
-		if e := checkJSON(raw); e != nil {
-			return nil, e
-		}
-		value.Repos, e = parseRefs(raw)
-		if e != nil {
-			return nil, e
-		}
-	}
-	if file, ok := c.flags["init-script-file"]; ok {
-		raw, e := readText(file)
-		if e != nil {
-			return nil, e
-		}
-		value.Script = string(raw)
-	}
-	if e := validateWorkspace(value); e != nil {
-		return nil, e
-	}
-	refs, e := s.internal(value.Repos)
+	change, e := parseWorkspaceChange(c)
 	if e != nil {
 		return nil, e
 	}
-	if !exists {
-		value.ID, e = uuid()
-		if e != nil {
-			return nil, e
-		}
+	id, e := uuid()
+	if e != nil {
+		return nil, e
 	}
-	w = workspaceRow{ID: value.ID, Name: value.Name, Repos: refs, Script: value.Script, Docs: value.Docs, Skills: value.Skills}
+	value := Workspace{ID: id, Name: c.name, Repos: []Ref{}}
+	row, e := change.apply(s, &value)
+	if e != nil {
+		return nil, e
+	}
 	next := s.clone()
-	next.Workspaces[w.Name] = w
-	e = a.store.commit(ctx, s, next)
-	if e != nil {
+	next.Workspaces[c.name] = row
+	if e := a.store.commit(ctx, s, next); e != nil {
 		return nil, e
 	}
+	value.Revision = row.revision()
 	return map[string]any{entity: value}, nil
 }
 

@@ -344,7 +344,7 @@ func TestConfigUpdatesAndReferences(t *testing.T) {
 		t.Fatal(result)
 	}
 	f.call(2, "repo-config", "update", "api")
-	f.call(2, "workbox-config", "update", "analysis")
+	f.call(2, "workbox-config", "update", "analysis", "--revision", f.revision("analysis"))
 	updated := object(object(f.call(0, "repo-config", "update", "api", "--default-branch", "develop")["data"])["repo_config"])
 	if updated["id"] != original["id"] {
 		t.Fatal("ID changed")
@@ -352,21 +352,21 @@ func TestConfigUpdatesAndReferences(t *testing.T) {
 	before := object(object(f.call(0, "workbox-config", "show", "analysis")["data"])["workspace_config"])
 	for _, contents := range []string{`[{"repo":"missing","target_dir":"repos/x"}]`, `[{"repo":"api","target_dir":"repos/x","unknown":1}]`, `[{"repo":"api","repo":"api","target_dir":"repos/x"}]`, `null`} {
 		file := f.file("bad.json", contents)
-		f.call(2, "workbox-config", "update", "analysis", "--repos-file", file)
+		f.call(2, "workbox-config", "update", "analysis", "--revision", f.revision("analysis"), "--repos-file", file)
 	}
-	f.call(2, "workbox-config", "update", "analysis", "--init-script-file", f.file("bad.sh", "echo bad"))
-	f.call(2, "workbox-config", "update", "analysis", "--init-script-file", f.file("bad.bin", string([]byte{255})))
-	f.call(1, "workbox-config", "update", "analysis", "--repos-file", filepath.Join(f.root, "absent"))
+	f.call(2, "workbox-config", "update", "analysis", "--revision", f.revision("analysis"), "--init-script-file", f.file("bad.sh", "echo bad"))
+	f.call(2, "workbox-config", "update", "analysis", "--revision", f.revision("analysis"), "--init-script-file", f.file("bad.bin", string([]byte{255})))
+	f.call(1, "workbox-config", "update", "analysis", "--revision", f.revision("analysis"), "--repos-file", filepath.Join(f.root, "absent"))
 	after := object(object(f.call(0, "workbox-config", "show", "analysis")["data"])["workspace_config"])
 	if !reflect.DeepEqual(before, after) {
 		t.Fatal("invalid file changed config")
 	}
-	f.call(0, "workbox-config", "update", "analysis", "--init-script-file", f.file("empty.sh", ""))
+	f.call(0, "workbox-config", "update", "analysis", "--revision", f.revision("analysis"), "--init-script-file", f.file("empty.sh", ""))
 	shown := object(object(f.call(0, "workbox-config", "show", "analysis")["data"])["workspace_config"])
 	if shown["init_script"] != "" || len(array(shown["repos"])) != 1 {
 		t.Fatal(shown)
 	}
-	f.call(0, "workbox-config", "update", "analysis", "--repos-file", f.file("empty.json", "[]"))
+	f.call(0, "workbox-config", "update", "analysis", "--revision", f.revision("analysis"), "--repos-file", f.file("empty.json", "[]"))
 	f.call(0, "repo-config", "remove", "api")
 	f.call(0, "workbox-config", "remove", "analysis")
 }
@@ -447,7 +447,7 @@ func TestSnapshotChangesDuringCreate(t *testing.T) {
 	f.workspace([]Ref{{Repo: "api", Target: "repos/api"}}, "#!/bin/sh\necho old\n")
 	target := filepath.Join(f.root, "new")
 	f.call(0, "plan", "--config", "analysis", "--path", target)
-	f.call(0, "workbox-config", "update", "analysis", "--init-script-file", f.file("new.sh", "#!/bin/sh\necho snapshot\n"))
+	f.call(0, "workbox-config", "update", "analysis", "--revision", f.revision("analysis"), "--init-script-file", f.file("new.sh", "#!/bin/sh\necho snapshot\n"))
 	f.app.gitRunner = hookedGit{gitCLI{}, func(args []string) *Failure {
 		if args[0] == "check-ref-format" {
 			f.sql("UPDATE workspace_config SET init_script=? WHERE name='analysis'", "#!/bin/sh\necho newer\n")
@@ -1001,4 +1001,9 @@ func TestRealSignalsDuringCreate(t *testing.T) {
 			assertAbsent(t, target)
 		})
 	}
+}
+
+func (f *fixture) revision(name string) string {
+	f.t.Helper()
+	return object(object(f.call(0, "workbox-config", "show", name)["data"])["workspace_config"])["revision"].(string)
 }

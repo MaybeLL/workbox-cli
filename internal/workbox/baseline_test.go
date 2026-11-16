@@ -51,7 +51,7 @@ func TestWorkspaceBaselineOverrides(t *testing.T) {
 			}
 			// Omitting ref on update clears the override and restores inheritance.
 			raw, _ := json.Marshal([]Ref{{Repo: "api", Target: "repos/api"}})
-			f.call(0, "workbox-config", "update", "analysis", "--repos-file", f.file("clear.json", string(raw)))
+			f.call(0, "workbox-config", "update", "analysis", "--revision", f.revision("analysis"), "--repos-file", f.file("clear.json", string(raw)))
 			second := filepath.Join(f.root, "inherited")
 			created := object(f.call(0, "create", "--config", "analysis", "--path", second)["data"])
 			if object(array(created["repos"])[0])["ref"] != nil {

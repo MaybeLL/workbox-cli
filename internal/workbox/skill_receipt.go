@@ -1,6 +1,7 @@
 package workbox
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -120,4 +121,48 @@ func recordSkill(dir string, files map[string][]byte) *Failure {
 		return ioFailure("Could not save the skill installation record")
 	}
 	return nil
+}
+
+func installedHashes(dir string) (map[string]string, *Failure) {
+	state, e := installStateDir()
+	if e != nil {
+		return nil, e
+	}
+	canonical, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return nil, ioFailure("Cannot resolve Skill path")
+	}
+	target := filepath.Join(canonical, "workbox")
+	record := filepath.Join(state, receiptName(target))
+	info, err := os.Lstat(record)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, invalid("Cannot verify Skill installation record")
+	}
+	raw, err := os.ReadFile(record)
+	var r skillReceipt
+	if err != nil || json.Unmarshal(raw, &r) != nil || !validReceipt(r) || r.Path != target {
+		return nil, invalid("Cannot verify Skill installation record")
+	}
+	return r.Files, nil
+}
+
+func lockSkillState(ctx context.Context) (func(), *Failure) {
+	state, e := installStateDir()
+	if e != nil {
+		return nil, e
+	}
+	// Hold the parent inode so uninstall can remove the empty state directory.
+	state = filepath.Dir(state)
+	if err := os.MkdirAll(state, 0700); err != nil {
+		return nil, ioFailure("Cannot prepare installation records")
+	}
+	root, err := os.OpenRoot(state)
+	if err != nil {
+		return nil, ioFailure("Cannot open installation records")
+	}
+	defer root.Close()
+	return lockDirectory(ctx, root)
 }

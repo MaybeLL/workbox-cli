@@ -6,6 +6,10 @@ Workbox is written in Go and builds to a single executable with a bundled, pure-
 
 项目的目标场景见[产品愿景](docs/Vision.md)，已确认的职责边界见[设计决策](docs/Decisions.md)，模块和代码入口见[实现导览](docs/Implementation.md)。
 
+For a temporary expansion, use `workbox add-repo --path DIR --url URL` (or `--repo REGISTERED_NAME`). Add optional `--name` for a URL, `--target-dir`, and `--branch` or `--commit`. This atomically updates only the instance manifest. Use `workbox resolve-ref --path DIR --repo NAME [--ref REF]` to compare the current revision with analysis evidence before development.
+
+Before updating a Workbox configuration or changing its selected Skills, read `data.workspace_config.revision` from `workbox workbox-config show NAME --format json` and pass it as `--revision REV`. After a conflict, reread and merge the intended change. Revisions are local to the configuration store and excluded from portable packages.
+
 ## Install
 
 Install the prebuilt executable with Homebrew:
@@ -42,7 +46,7 @@ workbox skill install
 
 This installs the single bundled `workbox` skill and its workflow reference into the shared user directory `~/.agents/skills/workbox`, supported by Codex, Cursor and OpenCode. Use `$workbox` in your next Codex message; restart Codex if it does not appear. The skill is embedded in the executable, so installation works offline and needs neither a source checkout nor Python. It does not read or create the configuration DB, run Git, or modify other skills.
 
-To choose a different skills parent directory, use `workbox skill install --path /path/to/skills`. The installer always adds a `workbox` subdirectory. Identical content returns `state: "unchanged"`; different, incomplete, extra or symlinked content returns `SKILL_CONFLICT` without overwriting anything. To replace a different or customized version, back up and move the existing `workbox` directory aside, then rerun the command. There is no force-overwrite mode.
+To choose a different skills parent directory, use `workbox skill install --path /path/to/skills`. The installer always adds a `workbox` subdirectory. Identical content returns `state: "unchanged"`; an unmodified older installation verified by its receipt is upgraded in place. Unverifiable, modified, incomplete, extra or symlinked content returns `SKILL_CONFLICT` without overwriting anything. To replace a different or customized version, back up and move the existing `workbox` directory aside, then rerun the command. There is no force-overwrite mode.
 
 The global Skill reads the instance repository list and any team-supplied instructions. The global Workbox skill covers configuration, script handoff and worktree development.
 
@@ -113,13 +117,13 @@ Each create resolves a project's branch once and copies the selected files verba
 ```sh
 workbox skill-config add --git-url https://gitlab.example.com/team/skills.git --subdir analysis
 workbox skill-config add --installer npx-skills https://github.com/mattpocock/skills --skill grill-me
-workbox workbox-config add-skill analysis grill-me
+workbox workbox-config add-skill analysis grill-me --revision REV
 workbox create --config analysis --path ./demand
 workbox search --path ./demand --query CreateOrder --repo api --ref api=release/11 --format json
 workbox read --path ./demand --repo api --file pkg/order.go --ref release/11 --lines 12-25
 ```
 
-Git sources use normal Git credentials; registration reads the name from SKILL.md. npx registration records the selected name without invoking npx. Creation installs selected Skills under `.agents/skills/`; the npx installer uses `skills@1.7.6` and requires npx with Node 22.20 or newer. Bundle companion files as regular files and directories. Remove a selection with `workbox workbox-config remove-skill NAME SKILL` before deleting a referenced registration. The global Workbox Skill remains user-installed.
+Git sources use normal Git credentials; registration reads the name from SKILL.md. npx registration records the selected name without invoking npx. Creation installs selected Skills under `.agents/skills/`; the npx installer uses `skills@1.7.6` and requires npx with Node 22.20 or newer. Bundle companion files as regular files and directories. Remove a selection with `workbox workbox-config remove-skill NAME SKILL --revision REV` before deleting a referenced registration. The global Workbox Skill remains user-installed.
 
 Search and read are limited to repositories in the instance manifest. Use repeated `--repo` and `--ref NAME=REF` to select multiple targets. Search returns per-repository coverage and retains hits from successful pages when another page or repository fails. A pinned SHA can be read directly. Empty search results without ref evidence report unknown coverage. For an SSH alias, use `workbox auth gitlab alias set --ssh-host ssh.company --host gitlab.company:8443` and retry in the same instance.
 
@@ -165,7 +169,7 @@ workbox repo-config remove NAME
 workbox workbox-config add NAME [--repos-file FILE] [--init-script-file FILE]
 workbox workbox-config list
 workbox workbox-config show NAME
-workbox workbox-config update NAME [--repos-file FILE] [--init-script-file FILE]
+workbox workbox-config update NAME --revision REV [--repos-file FILE] [--init-script-file FILE]
 workbox workbox-config remove NAME
 
 workbox plan --config NAME --path DIR
@@ -310,7 +314,7 @@ local IDs, allocates IDs for new teams, skips identical content, and atomically
 rejects conflicts (including display-name or membership differences). Older
 packages without teams remain supported and describe unassigned repositories.
 
-The next write upgrades database schemas 1–3 to schema 4; reads remain read-only.
+The next write upgrades database schemas 1–4 to schema 5; reads remain read-only.
 All clients sharing the database must be upgraded before writes, since older
-binaries cannot read schema 4. Existing repository/Workbox IDs and references
+binaries cannot read schema 5. Existing repository/Workbox IDs and references
 are retained. The ignored private catalog is not automatically assigned to teams.

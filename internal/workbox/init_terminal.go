@@ -251,7 +251,7 @@ func (a *app) interactiveInit(ctx context.Context, root string, old settingsReco
 					handle.Close()
 					return nil, ioFailure("Could not read bundled Skill")
 				}
-				_, e = existingSkill(handle, files)
+				_, _, e = inspectInstall(handle, parent, files)
 				handle.Close()
 				if e != nil {
 					fmt.Fprintln(w, e.Message)
