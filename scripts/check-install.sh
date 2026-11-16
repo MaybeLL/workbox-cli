@@ -35,6 +35,7 @@ test ! -e "$smoke_root/workspace/AGENTS.md"
 printf '%s\n' 'My team instructions' > "$smoke_root/workspace/AGENTS.md"
 test ! -e "$smoke_root/workspace/.agents"
 cp "$smoke_root/workspace/AGENTS.md" "$smoke_root/agents-before.md"
+call list
 call status --path "$smoke_root/workspace"
 call config export --output "$smoke_root/config.json"
 WORKBOX_CONFIG_HOME="$smoke_root/imported-config" "$binary" init --backend sqlite --skip-skill --format json
@@ -53,7 +54,8 @@ WORKBOX_CONFIG_HOME="$smoke_root/config" "$smoke_root/bin/workbox" uninstall --f
 test ! -e "$smoke_root/bin/workbox"
 test ! -e "$smoke_root/skills/workbox"
 test ! -e "$HOME/.agents/skills/workbox"
-test ! -e "$WORKBOX_STATE_HOME"
+test -f "$WORKBOX_STATE_HOME/instances.db"
+test -z "$(find "$WORKBOX_STATE_HOME" -name 'skill-*.json' -print)"
 test -f "$smoke_root/workspace/.workbox/repos.json"
 cmp "$smoke_root/agents-before.md" "$smoke_root/workspace/AGENTS.md"
 cmp "$smoke_root/config-before.db" "$smoke_root/config/config.db"

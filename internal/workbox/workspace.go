@@ -26,13 +26,6 @@ func destination(raw string) (string, *Failure) {
 	if e != nil {
 		return "", e
 	}
-	exists, err := pathExists(path)
-	if err != nil {
-		return "", ioFailure("Could not inspect Workbox target")
-	}
-	if exists {
-		return "", fail("TARGET_EXISTS", "Workbox target must not exist")
-	}
 	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
 	if err != nil {
 		return "", fail("PATH_INVALID", "Workbox parent must exist and be accessible")
@@ -43,6 +36,26 @@ func destination(raw string) (string, *Failure) {
 	}
 	if syscall.Access(parent, 3) != nil {
 		return "", ioFailure("Workbox parent is not writable")
+	}
+	for ancestor := parent; ; ancestor = filepath.Dir(ancestor) {
+		marker := filepath.Join(ancestor, ".workbox", "repos.json")
+		_, err := os.Lstat(marker)
+		if err == nil {
+			return "", fail("PATH_INVALID", "Cannot create inside existing Workbox instance: "+ancestor)
+		}
+		if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR) {
+			return "", ioFailure("Could not inspect ancestor marker: " + err.Error())
+		}
+		if ancestor == filepath.Dir(ancestor) {
+			break
+		}
+	}
+	exists, err := pathExists(path)
+	if err != nil {
+		return "", ioFailure("Could not inspect Workbox target")
+	}
+	if exists {
+		return "", fail("TARGET_EXISTS", "Workbox target already exists: "+path)
 	}
 	return filepath.Join(parent, filepath.Base(path)), nil
 }
@@ -223,6 +236,13 @@ func (a *app) prepare(ctx context.Context, name, raw string, create bool) (data 
 		return nil, e
 	}
 	result["workspace_path"] = root
+	registry, e := localInstances()
+	if e != nil {
+		return nil, e
+	}
+	if e := registry.checkAvailable(ctx, root); e != nil {
+		return nil, e
+	}
 	if !create {
 		return result, nil
 	}
@@ -233,6 +253,11 @@ func (a *app) prepare(ctx context.Context, name, raw string, create bool) (data 
 		return nil, e
 	}
 	result["state"] = "prepared"
+	if err := registry.register(ctx, root, name); err != nil {
+		result["registration"] = map[string]string{"state": "failed", "reason": err.Error()}
+	} else {
+		result["registration"] = map[string]string{"state": "registered"}
+	}
 	return publishedInstance(result), nil
 }
 

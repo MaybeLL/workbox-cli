@@ -143,7 +143,7 @@ func TestUninstallLegacyAndStaleReceipts(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	state, _ := installStateDir()
+	state, _ := userStateDir()
 	for _, dir := range dirs[:2] {
 		canonical, _ := filepath.EvalSymlinks(dir)
 		if err := os.Remove(filepath.Join(state, receiptName(filepath.Join(canonical, "workbox")))); err != nil {
@@ -194,7 +194,7 @@ func TestUninstallInvalidRecordsPreserveAll(t *testing.T) {
 				t.Fatal(e)
 			}
 			canonical, _ := filepath.EvalSymlinks(dir)
-			state, _ := installStateDir()
+			state, _ := userStateDir()
 			path := filepath.Join(state, receiptName(filepath.Join(canonical, "workbox")))
 			body, err := os.ReadFile(path)
 			if err != nil {

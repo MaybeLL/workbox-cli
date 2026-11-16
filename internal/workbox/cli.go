@@ -63,6 +63,8 @@ const usage = `Usage: workbox COMMAND [--format text|json]
   resolve-ref --path DIR --repo NAME [--ref REF]
   search --path DIR --query TERM [--repo NAME]... [--ref NAME=REF]...
   read --path DIR --repo NAME --file PATH [--ref REF] [--lines START-END]
+  list
+  forget --path DIR
   status --path DIR
   skill-config add --git-url URL [--subdir DIR] [--branch NAME | --commit SHA]
   skill-config add --installer npx-skills URL --skill NAME
@@ -151,7 +153,7 @@ func parse(args []string) (command, *Failure) {
 	}
 	start := 1
 	switch c.entity {
-	case "uninstall", "init", "plan", "create", "status", "search", "read", "add-repo", "resolve-ref":
+	case "list", "forget", "uninstall", "init", "plan", "create", "status", "search", "read", "add-repo", "resolve-ref":
 	default:
 		if len(args) < 2 {
 			return c, bad
@@ -283,7 +285,8 @@ func parse(args []string) (command, *Failure) {
 			allowed["file"] = true
 			allowed["lines"] = true
 		}
-	case "status":
+	case "list":
+	case "forget", "status":
 		required = []string{"path"}
 		allowed["path"] = true
 	case "skill":
@@ -456,6 +459,16 @@ func (a *app) execute(ctx context.Context, c command) (any, *Failure) {
 	if c.entity == "status" {
 		return a.status(ctx, c.flags["path"])
 	}
+	if c.entity == "list" || c.entity == "forget" {
+		r, e := localInstances()
+		if e != nil {
+			return nil, e
+		}
+		if c.entity == "list" {
+			return r.list(ctx)
+		}
+		return r.forget(ctx, c.flags["path"])
+	}
 	if a.store == nil {
 		backend, e := configuredStore()
 		if e != nil {
@@ -509,7 +522,7 @@ func (a *app) run(ctx context.Context, args []string, stdout, stderr io.Writer, 
 			ver = ver || arg == "--version"
 		}
 		if help {
-			data = map[string]any{"usage": usage, "commands": []string{"init", "repo-config add/list/show/update/remove", "team-config add/list/show/update/remove", "workbox-config add/list/show/update/remove/add-skill/remove-skill", "config export/import", "plan", "create", "status", "search", "read", "add-repo", "resolve-ref", "auth gitlab set/alias set", "skill-config add/list/show/update/remove", "skill install", "uninstall"}}
+			data = map[string]any{"usage": usage, "commands": []string{"init", "repo-config add/list/show/update/remove", "team-config add/list/show/update/remove", "workbox-config add/list/show/update/remove/add-skill/remove-skill", "config export/import", "plan", "create", "list", "forget", "status", "search", "read", "add-repo", "resolve-ref", "auth gitlab set/alias set", "skill-config add/list/show/update/remove", "skill install", "uninstall"}}
 		} else if ver && len(clean) == 1 {
 			data = map[string]string{"program": "workbox", "version": version}
 		} else {

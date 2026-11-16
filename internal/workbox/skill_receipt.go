@@ -27,21 +27,6 @@ func skillHashes(files map[string][]byte) map[string]string {
 	return result
 }
 
-func installStateDir() (string, *Failure) {
-	if raw := os.Getenv("WORKBOX_STATE_HOME"); raw != "" {
-		return absolute(raw)
-	}
-	root := os.Getenv("XDG_STATE_HOME")
-	if root == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", ioFailure("Could not locate installation records; set WORKBOX_STATE_HOME")
-		}
-		root = filepath.Join(home, ".local", "state")
-	}
-	return absolute(filepath.Join(root, "workbox"))
-}
-
 func receiptName(path string) string {
 	return fmt.Sprintf("skill-%x.json", sha256.Sum256([]byte(path)))
 }
@@ -74,7 +59,7 @@ func recordSkill(dir string, files map[string][]byte) *Failure {
 	if err != nil {
 		return ioFailure("Could not encode the skill installation record")
 	}
-	state, e := installStateDir()
+	state, e := userStateDir()
 	if e != nil {
 		return e
 	}
@@ -124,7 +109,7 @@ func recordSkill(dir string, files map[string][]byte) *Failure {
 }
 
 func installedHashes(dir string) (map[string]string, *Failure) {
-	state, e := installStateDir()
+	state, e := userStateDir()
 	if e != nil {
 		return nil, e
 	}
@@ -150,7 +135,7 @@ func installedHashes(dir string) (map[string]string, *Failure) {
 }
 
 func lockSkillState(ctx context.Context) (func(), *Failure) {
-	state, e := installStateDir()
+	state, e := userStateDir()
 	if e != nil {
 		return nil, e
 	}

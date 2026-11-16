@@ -112,7 +112,7 @@ func detectInstallation(ctx context.Context, binary, invoked string) (uninstallC
 }
 
 func skillCandidates(extra string) (map[string]map[string]string, string, []receiptFile, *Failure) {
-	state, e := installStateDir()
+	state, e := userStateDir()
 	if e != nil {
 		return nil, "", nil, e
 	}

@@ -17,6 +17,21 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+func userStateDir() (string, *Failure) {
+	if raw := os.Getenv("WORKBOX_STATE_HOME"); raw != "" {
+		return absolute(raw)
+	}
+	root := os.Getenv("XDG_STATE_HOME")
+	if root == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", ioFailure("Could not locate user state directory; set WORKBOX_STATE_HOME")
+		}
+		root = filepath.Join(home, ".local", "state")
+	}
+	return absolute(filepath.Join(root, "workbox"))
+}
+
 type localSettings struct {
 	Version       int             `json:"settings_version"`
 	Revision      string          `json:"revision"`

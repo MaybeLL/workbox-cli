@@ -12,11 +12,14 @@ flowchart TD
     CLI --> Prepare["workbox plan / create"]
     CLI --> Append["add-repo · 追加本次分析范围"]
     Append -->|加锁并原子替换清单| Manifest
+    CLI --> History["workbox list / forget"]
+    History --> Registry["用户状态目录 · instances.db"]
     CLI --> Status["workbox status"]
     CLI --> Install["全局 Skill 安装与卸载"]
     Init --> Store["configStore · SQLite / MySQL"]
     Init -->|可选安装| Install
     Config -->|快照与提交| Store
+    Prepare -->|预检查重，发布后登记| Registry
     Prepare -->|读取快照| Store
     Config -->|验证仓库来源| Git["Git 命令"]
     Prepare -->|create 写入| Files["仓库清单、选中的文档和 Skill"]
@@ -34,8 +37,9 @@ flowchart TD
 
 4. **远程分析与开发。** 全局 Skill 指导 Agent 按实例清单搜索和读取代码。GitLab 请求按 HTTPS 实例选择用户凭据；SSH 端点按本机别名或唯一同名实例解析。项目对象统一处理分支、ref 的解析及按 SHA 读取文件。搜索保留各仓库的结果和覆盖状态，文件读取按 SHA 返回。add-repo 可从已登记名称或 GitLab 地址追加本次分析范围，先按项目身份在完整清单中查重。已选 URL 可以离线复用；新 URL 查询默认分支后，再在锁内重读清单、检查冲突并原子替换 repos.json。Agent 在分析结论中记录证据 SHA。read 和 resolve-ref 通过同一入口解析版本。对清单指定的分支，两者都使用 GitLab 分支接口，分支已删除时即使存在同名 tag 也会报告查询失败。固定 SHA 使用提交接口，read 显式指定清单以外的 ref 时保留 GitLab 的通用解析语义。进入开发前用 resolve-ref 核对分支尖端，遇到推进时将两个 SHA 交给用户选择，再按选定提交准备 worktree。[GitLab 连接](../internal/workbox/gitlab.go) · [实例追加](../internal/workbox/instance_append.go) · [检索、读取和位点查询](../internal/workbox/remote_code.go) · [Skill 工作流](../skills/workbox/references/agent-guide.md)
 
-## 两条独立的本地流程
+## 独立于团队配置库的本地流程
 
+- **找回需求目录。** `plan/create` 用实际父目录检查祖先的 `.workbox/repos.json`，并只读检查本机登记库中的路径占用。库不存在时预览按空清单处理。目录发布后才登记配置名、时间与唯一路径。首次建库先准备完整表结构，再排他发布数据库文件。写入失败时创建结果仍为 `prepared`，并在 `registration` 中给出失败状态和原因。`list` 按路径列出记录，逐条报告目录现状；`forget --path` 优先匹配记录原路径，其次解析符号链接别名，仅删除记录。两个命令都可以在团队配置库离线时执行。[本机登记](../internal/workbox/local_instances.go) · [状态目录](../internal/workbox/settings.go) · [CLI 验收用例](../internal/workbox/local_instances_test.go)
 - **观察实际检出。** `status` 直接扫描指定目录，通过本地 Git 读取基线与 worktree 的状态，并核对 worktree 的归属。配置数据库和仓库清单都不参与扫描，因此刚创建的实例可以列有多个配置仓库，同时报告零个本地检出。读代码从 `status` 和 `checkout` 开始。[状态检查](../internal/workbox/status.go)
 - **安装和卸载配套 Skill。** `skill install` 从二进制内嵌资源读取文件，安装到用户 Skill 目录并记录位置与哈希。当前内容一致时复用安装。旧目录与该路径收据中的文件摘要完全一致时，暂存新目录并原子交换；出现冲突时保留现有文件。若新版已发布而收据保存失败，错误结果包含实际安装路径、发布状态、收据状态和可重试的命令参数。修复记录目录后重试即可补齐收据。安装与卸载共用本地操作锁。卸载流程结合安装记录和文件内容确认哪些产物可移除。安装与卸载均可独立于配置数据库运行。[内嵌资源](../skills/embed.go) · [安装](../internal/workbox/skill.go) · [安装记录](../internal/workbox/skill_receipt.go) · [卸载](../internal/workbox/uninstall.go)
 
@@ -50,5 +54,7 @@ flowchart TD
 同一账号在两套独立配置库之间完成导出、导入，在同一 GitLab 个人命名空间的两个私有项目上零克隆搜索，按 commit SHA 读回了两边预期的源码行。随后在同一个需求目录里只检出 consumer，从分析时的提交创建原生 worktree，完成修改、测试并推送测试分支。consumer 基线保持干净，producer 全程通过远程接口读取。
 
 2026-11-16，本地 macOS 全量 race 测试覆盖 SQLite、MySQL 8.4、旧库迁移与真实 npx 重试。Linux 容器的全量 race 测试与两平台的安装卸载冒烟测试通过。两个私有 GitLab 项目均通过 URL 追加到空实例，零克隆搜索命中，并按固定 SHA 读回预期源码。独立会话在临时 HOME 安装内嵌 Skill，用本地 Git 测试仓库完成首次导入、直接创建、校验初始化产物和只为 consumer 建立 worktree。复用 consumer 已有开发分支，通过 resolve-ref 验证其尖端与分析提交不同。回归测试覆盖分支删除后同名 tag 仍在、追加重名项目后离线重试、先补依赖再解决导入冲突、已发布 Skill 补写收据，以及 SQLite 和 MySQL 上两人以同一 revision 更新后重读合并。提交 `6c8d6aa` 的 Ubuntu、macOS 和 MySQL 三项 CI 均已通过。[CI 记录](https://github.com/MaybeLL/workbox-cli/actions/runs/43818364631) · [新工作流回归测试](../internal/workbox/design_workflow_test.go)
+
+本机实例登记已在 macOS 通过全量 race 测试、静态检查和安装卸载冒烟。使用编译出的 CLI 并发创建八个不同实例，首次建库后八条登记均可从另一配置环境列出，逐条 forget 后各实例目录仍可使用。同路径并发创建另有回归验证只有一个发布者及一条记录。[并发发布测试](../internal/workbox/phase2_test.go)
 
 **待团队验证**　由另一位成员导入配置，用自己的凭据访问分属不同 Group 的仓库，核对预期命中以及权限不足时报告的覆盖范围。

@@ -61,6 +61,7 @@ func setup(t *testing.T) *fixture {
 	localStore := &sqliteStore{path: filepath.Join(root, "config", "config.db")}
 	f := &fixture{t: t, root: root, remotes: remotes, realGit: gitPath, sqlite: localStore, app: &app{store: localStore, gitRunner: gitCLI{}}}
 	empty := f.file("gitconfig", "")
+	t.Setenv("WORKBOX_STATE_HOME", filepath.Join(root, "state"))
 	t.Setenv("WORKBOX_DB", "sqlite")
 	t.Setenv("WORKBOX_MYSQL_DSN", "")
 	t.Setenv("WORKBOX_MYSQL_DSN_FILE", "")

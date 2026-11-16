@@ -296,6 +296,9 @@ func TestConcurrentCreatePublishesOneCompleteInstance(t *testing.T) {
 	if winners != 1 {
 		t.Fatal("expected one publisher", winners)
 	}
+	if rows := array(object(f.call(0, "list")["data"])["instances"]); len(rows) != 1 || object(rows[0])["path"] != target {
+		t.Fatal("expected one registered instance", rows)
+	}
 	raw, err := os.ReadFile(filepath.Join(target, ".workbox/repos.json"))
 	if err != nil || strings.TrimSpace(string(raw)) != "[]" {
 		t.Fatal(err)

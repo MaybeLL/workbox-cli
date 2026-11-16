@@ -193,6 +193,8 @@ workbox add-repo --path DIR (--url URL [--name NAME] | --repo REGISTERED_NAME) [
 workbox resolve-ref --path DIR --repo NAME [--ref REF]
 workbox search --path DIR --query TERM [--repo NAME]... [--ref NAME=REF]...
 workbox read --path DIR --repo NAME --file PATH [--ref REF] [--lines START-END]
+workbox list
+workbox forget --path DIR
 workbox status --path DIR
 workbox config export --output FILE
 workbox config import --input FILE
@@ -209,6 +211,14 @@ Repository URLs support HTTPS, `ssh://user@host/path`, and SCP-style `git@host:p
 The `repo-config add` and `repo-config update` commands verify the configured default branch against the exact remote `refs/heads/BRANCH`. Import performs this check for each business repository in the package. Selecting or removing an already registered Skill uses only the configuration store. Ambiguous inaccessible/missing remotes return `REMOTE_UNVERIFIABLE`; Git's generic access denial is not evidence of nonexistence. Queries time out after 60 seconds, and other Git operations after 60 seconds. All Git operations are noninteractive; no automatic retries occur.
 
 Each Workbox repository entry requires `repo` and `target_dir` and accepts an optional `ref`. Repository selections cannot repeat. Target paths use `/`, must be relative, and cannot contain empty, `.`, `..`, `.git`, or `.workbox` segments. Backslashes, drive paths, and ancestor/descendant or case-folded overlaps are rejected. The top-level `AGENTS.md` name and paths below it are reserved (case-insensitive); repository targets cannot overlap the Workbox instruction file. Referenced repository configurations cannot be removed; the error lists the Workbox configurations using them. Removing a Workbox configuration never removes a directory.
+
+### Find a local instance
+
+Run `workbox list` from any directory to see each registered absolute path, its original configuration name, creation time and current status (`present`, `missing`, `not_directory` or `unknown` with a reason). This works offline across configuration stores. Records live in `instances.db` under `WORKBOX_STATE_HOME` or `${XDG_STATE_HOME:-~/.local/state}/workbox` and are excluded from configuration exports. Only new successful creations are registered.
+
+Both `plan` and `create` reject an occupied or registered path and a destination inside an existing instance. A preview reserves nothing. If registration fails after publication, the response still has `state: "prepared"` and gives the registration failure reason. Continue at the returned path.
+
+Moving or deleting a directory leaves its record at the original path. To release the record, run `workbox forget --path DIR` with the path from the list. The directory and its contents stay on disk.
 
 ## Storage and portability
 
@@ -280,7 +290,7 @@ Run `sh scripts/check-install.sh /path/to/workbox` to check an installed executa
 
 ### Publish a release
 
-To build the release archives locally, run `make release VERSION=0.7.0` with the intended version.
+To build the release archives locally, run `make release VERSION=0.8.0` with the intended version.
 
 After CI passes on the release commit, push its version tag. The [release workflow](.github/workflows/release.yml) creates the draft, builds the archives and macOS bottles, and merges the bottle checksums into the final formula. If publication stops after both bottles and their metadata are uploaded, rerun the workflow manually with the draft’s `release_tag`. After publication, copy the final `workbox.rb` release asset to `Formula/workbox.rb` in the Homebrew tap. Use a new version for corrections to published artifacts.
 
