@@ -19,6 +19,13 @@ brew install MaybeLL/tap/workbox
 workbox --version
 ```
 
+To upgrade an existing Homebrew installation and its global Skill, keep your current Workbox configuration and run:
+
+```sh
+brew update && brew upgrade maybell/tap/workbox
+workbox skill install
+```
+
 Or download the matching archive from [GitHub Releases](https://github.com/MaybeLL/workbox-cli/releases), verify its SHA-256 against the published checksums, then put `workbox` in PATH.
 
 To build from this checkout, use Go 1.26+:
@@ -32,7 +39,7 @@ Prebuilt release executables require no Go, Python, C compiler, or separately in
 
 ## Initialize
 
-Run `workbox init` after installation or upgrade. The terminal wizard selects SQLite or an existing MySQL database, offers Skill installation (default yes), and confirms before writing. Configuration commands and workbox plan/create require this step; existing databases and IDs are preserved.
+Run `workbox init` before using the configuration store for the first time. The terminal wizard selects SQLite or an existing MySQL database, offers Skill installation (default yes), and confirms before writing. Configuration commands, `workbox plan` and `workbox create` use these saved settings across upgrades. The local instance commands `workbox list` and `workbox forget --path DIR` also work before initialization.
 
 For scripts: `workbox init --backend sqlite --skip-skill --format json`. Use `--install-skill` to install the companion Skill and `--skill-path DIR` to choose its parent directory.
 
