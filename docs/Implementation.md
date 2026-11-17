@@ -27,7 +27,7 @@ flowchart TD
     Install --> Global["用户 Skill 目录与安装记录"]
 ```
 
-## 从配置到需求目录
+## 从配置到 Workbox 实例
 
 1. **初始化 CLI。** `init` 先根据现有设置和用户选择制定计划，再准备目标存储、按需复制配置，最后发布本机的 `settings.json`。之后才执行可选的 Skill 安装，因此安装失败时设置可能已经生效。后续配置命令通过已发布的设置和环境覆盖选择后端。读代码从 `planInit`、`executeInit` 开始。[初始化流程](../internal/workbox/init.go) · [设置与后端选择](../internal/workbox/settings.go)
 
@@ -39,7 +39,7 @@ flowchart TD
 
 ## 独立于团队配置库的本地流程
 
-- **找回需求目录。** `plan/create` 用实际父目录检查祖先的 `.workbox/repos.json`，并只读检查本机登记库中的路径占用。库不存在时预览按空清单处理。目录发布后才登记配置名、时间与唯一路径。首次建库先准备完整表结构，再排他发布数据库文件。写入失败时创建结果仍为 `prepared`，并在 `registration` 中给出失败状态和原因。`list` 按路径列出记录，逐条报告目录现状；`forget --path` 优先匹配记录原路径，其次解析符号链接别名，仅删除记录。两个命令都可以在团队配置库离线时执行。[本机登记](../internal/workbox/local_instances.go) · [状态目录](../internal/workbox/settings.go) · [CLI 验收用例](../internal/workbox/local_instances_test.go)
+- **找回本机登记的 Workbox 实例。** `plan/create` 用实际父目录检查祖先的 `.workbox/repos.json`，并只读检查本机登记库中的路径占用。库不存在时预览按空清单处理。目录发布后才登记配置名、时间与唯一路径。首次建库先准备完整表结构，再排他发布数据库文件。写入失败时创建结果仍为 `prepared`，并在 `registration` 中给出失败状态和原因。`list` 按路径列出记录，逐条报告目录现状；`forget --path` 优先匹配记录原路径，其次解析符号链接别名，仅删除记录。两个命令都可以在团队配置库离线时执行。[本机登记](../internal/workbox/local_instances.go) · [状态目录](../internal/workbox/settings.go) · [CLI 验收用例](../internal/workbox/local_instances_test.go)
 - **观察实际检出。** `status` 直接扫描指定目录，通过本地 Git 读取基线与 worktree 的状态，并核对 worktree 的归属。配置数据库和仓库清单都不参与扫描，因此刚创建的实例可以列有多个配置仓库，同时报告零个本地检出。读代码从 `status` 和 `checkout` 开始。[状态检查](../internal/workbox/status.go)
 - **安装和卸载配套 Skill。** `skill install` 从二进制内嵌资源读取文件，安装到用户 Skill 目录并记录位置与哈希。当前内容一致时复用安装。旧目录与该路径收据中的文件摘要完全一致时，暂存新目录并原子交换；出现冲突时保留现有文件。若新版已发布而收据保存失败，错误结果包含实际安装路径、发布状态、收据状态和可重试的命令参数。修复记录目录后重试即可补齐收据。安装与卸载共用本地操作锁。卸载流程结合安装记录和文件内容确认哪些产物可移除。安装与卸载均可独立于配置数据库运行。[内嵌资源](../skills/embed.go) · [安装](../internal/workbox/skill.go) · [安装记录](../internal/workbox/skill_receipt.go) · [卸载](../internal/workbox/uninstall.go)
 
@@ -51,7 +51,7 @@ flowchart TD
 
 2026-11-13，提交 `40d445b` 在 Ubuntu、macOS 和 MySQL 三项 CI 上通过。仓内回归覆盖文档按 SHA 读取、创建失败后重试、配置迁移和 GitLab 返回部分搜索结果。[CI 记录](https://github.com/MaybeLL/workbox-cli/actions/runs/43353650781) · [端到端测试](../internal/workbox/phase2_test.go)
 
-同一账号在两套独立配置库之间完成导出、导入，在同一 GitLab 个人命名空间的两个私有项目上零克隆搜索，按 commit SHA 读回了两边预期的源码行。随后在同一个需求目录里只检出 consumer，从分析时的提交创建原生 worktree，完成修改、测试并推送测试分支。consumer 基线保持干净，producer 全程通过远程接口读取。
+同一账号在两套独立配置库之间完成导出、导入，在同一 GitLab 个人命名空间的两个私有项目上零克隆搜索，按 commit SHA 读回了两边预期的源码行。随后在同一个 Workbox 实例中只检出 consumer，从分析时的提交创建原生 worktree，完成修改、测试并推送测试分支。consumer 基线保持干净，producer 全程通过远程接口读取。
 
 2026-11-16，本地 macOS 全量 race 测试覆盖 SQLite、MySQL 8.4、旧库迁移与真实 npx 重试。Linux 容器的全量 race 测试与两平台的安装卸载冒烟测试通过。两个私有 GitLab 项目均通过 URL 追加到空实例，零克隆搜索命中，并按固定 SHA 读回预期源码。独立会话在临时 HOME 安装内嵌 Skill，用本地 Git 测试仓库完成首次导入、直接创建、校验初始化产物和只为 consumer 建立 worktree。复用 consumer 已有开发分支，通过 resolve-ref 验证其尖端与分析提交不同。回归测试覆盖分支删除后同名 tag 仍在、追加重名项目后离线重试、先补依赖再解决导入冲突、已发布 Skill 补写收据，以及 SQLite 和 MySQL 上两人以同一 revision 更新后重读合并。提交 `6c8d6aa` 的 Ubuntu、macOS 和 MySQL 三项 CI 均已通过。[CI 记录](https://github.com/MaybeLL/workbox-cli/actions/runs/43818364631) · [新工作流回归测试](../internal/workbox/design_workflow_test.go)
 

@@ -1,6 +1,6 @@
 ---
 name: workbox
-description: Use the Workbox CLI to configure team repositories, documents and Skills, import shared configuration, create a demand directory, analyze GitLab code remotely and continue development in Git worktrees.
+description: Use the Workbox CLI to configure team repositories, documents and Skills, import shared configuration, create a Workbox instance, analyze GitLab code remotely and continue development in Git worktrees.
 ---
 
 # Workbox
@@ -27,7 +27,7 @@ Use list/show to identify existing items. Use add/update/remove on the appropria
 ## Create and analyze an instance
 
 - Use `plan --config NAME --path DIR` for an explicit preview. For creation run `create` directly with the chosen config and path. Use the requested parent, then team conventions; ask if neither provides it. Choose an unused task-derived child name if omitted. Report the full created path. On preparation failure inspect the item and stage, fix the cause, then retry the original destination.
-- To find past demand directories run `workbox list --format json`. Report the recorded path and its current status. A moved or missing directory keeps its record. On request to forget a record use `workbox forget --path DIR` with the listed path; leave the directory on disk. A missing registered target requires forget before reuse. Choose a target outside existing instances.
+- To list registered Workbox instances run `workbox list --format json`. Report the recorded path and its current status. A moved or missing directory keeps its record. On request to forget a record use `workbox forget --path DIR` with the listed path; leave the directory on disk. A missing registered target requires forget before reuse. Choose a target outside existing instances.
 - If create returns `prepared` with `registration.state: failed`, report the reason and continue at `workspace_path`. The directory is ready; repeating create would hit the occupied target.
 - Start with the team's instructions and .workbox/repos.json. For “also look at this repo this time”, run `add-repo --path DIR --url URL` or select a registered name with `--repo NAME`. A URL needs no catalog registration. Resolve ambiguous names with the user. Continue in the same instance without cloning. Update shared configuration separately only when explicitly requested for future instances.
 - For `search --path DIR --query TERM`, explicit scope and versions take precedence; otherwise use the whole instance list, each repo's ref hint, then its default branch. Repeat `--repo NAME` and `--ref NAME=REF` as needed. Ask about unmappable intent such as an unspecified production version. Report actual coverage by repository and ref, including partial/error results. Use `read --path DIR --repo NAME --file PATH [--ref REF] [--lines START-END]` to verify a file and cite its commit. Fixed SHA supports file reads; branch search cannot prove exhaustive coverage at a SHA. Check out only when requested.

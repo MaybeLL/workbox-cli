@@ -1,6 +1,6 @@
 # workbox
 
-Prepare local Workbox instances from reusable configurations. `workbox` stores repository sources and Workbox layouts in SQLite (default) or MySQL, verifies remote branches during repository registration, and prepares a directory for remote code analysis. Initialization scripts are returned to the caller as text and **never executed by the CLI**.
+Prepare local Workbox instances from reusable configurations. `workbox` stores repository sources and Workbox layouts in SQLite (default) or MySQL, verifies remote branches during repository registration, and creates Workbox instances for remote code analysis. Initialization scripts are returned to the caller as text and **never executed by the CLI**.
 
 Workbox is written in Go and builds to a single executable with a bundled, pure-Go SQLite engine. Users need Git, with existing HTTPS/SSH authentication configured. Supported build targets are macOS and Linux on ARM64 and AMD64; Windows is not supported in this release. Development checkouts use native Git worktrees inside the same Workbox.
 
@@ -57,7 +57,7 @@ To choose a different skills parent directory, use `workbox skill install --path
 
 The global Skill reads the instance repository list and any team-supplied instructions. The global Workbox skill covers configuration, script handoff and worktree development.
 
-Start an agent session at the Workbox root. A session started directly inside a baseline repository or a development worktree may stop discovering ancestor rules at a Git boundary or use nearer repository instructions; explicitly include the team's `AGENTS.md`, when configured, and global `workbox` skill in such sessions. Existing repository instructions remain applicable. The entry point guides agent behavior; it does not make baselines physically read-only. Existing Workbox instances are not retrofitted automatically.
+Start an agent session in the instance directory. A session started directly inside a baseline repository or a development worktree may stop discovering ancestor rules at a Git boundary or use nearer repository instructions; explicitly include the team's `AGENTS.md`, when configured, and global `workbox` skill in such sessions. Existing repository instructions remain applicable. The entry point guides agent behavior; it does not make baselines physically read-only. Existing Workbox instances are not retrofitted automatically.
 
 ## Uninstall
 
@@ -74,7 +74,7 @@ Uninstall discovers recorded skill locations and the standard `~/.agents/skills/
 
 Starting with 0.1.2, `skill install` records every custom installation path. For a custom path installed with 0.1.1, run `workbox skill install --path DIR` once to register identical content, or use `workbox uninstall --skill-path DIR`. Uninstall does not search the whole disk or remove archive/source checkouts. Installation records use `WORKBOX_STATE_HOME`, otherwise `${XDG_STATE_HOME:-~/.local/state}/workbox`; keep the same environment when installing and uninstalling.
 
-## First Workbox
+## Create your first Workbox instance
 
 The URL below is a placeholder. Replace it with a repository you can access and a branch that actually exists. Git must already have credentials and, for SSH, a trusted host key.
 
@@ -88,7 +88,7 @@ JSON
 
 cat > init.sh <<'SH'
 #!/bin/sh
-# Expected artifact: READY.txt at the Workbox root, containing ready.
+# Expected artifact: READY.txt in the instance directory, containing ready.
 printf '%s\n' 'ready' > READY.txt
 SH
 
@@ -219,9 +219,9 @@ The `repo-config add` and `repo-config update` commands verify the configured de
 
 Each Workbox repository entry requires `repo` and `target_dir` and accepts an optional `ref`. Repository selections cannot repeat. Target paths use `/`, must be relative, and cannot contain empty, `.`, `..`, `.git`, or `.workbox` segments. Backslashes, drive paths, and ancestor/descendant or case-folded overlaps are rejected. The top-level `AGENTS.md` name and paths below it are reserved (case-insensitive); repository targets cannot overlap the Workbox instruction file. Referenced repository configurations cannot be removed; the error lists the Workbox configurations using them. Removing a Workbox configuration never removes a directory.
 
-### Find a local instance
+### Find a local Workbox instance
 
-Run `workbox list` from any directory to see each registered absolute path, its original configuration name, creation time and current status (`present`, `missing`, `not_directory` or `unknown` with a reason). This works offline across configuration stores. Records live in `instances.db` under `WORKBOX_STATE_HOME` or `${XDG_STATE_HOME:-~/.local/state}/workbox` and are excluded from configuration exports. Only new successful creations are registered.
+Run `workbox list` from any directory to list registered Workbox instances. Each record shows the absolute path of the instance directory, the original configuration name, the creation time and the current directory status (`present`, `missing`, `not_directory` or `unknown` with a reason). This works offline across configuration stores. Records live in `instances.db` under `WORKBOX_STATE_HOME` or `${XDG_STATE_HOME:-~/.local/state}/workbox` and are excluded from configuration exports. Only new successful creations are registered.
 
 Both `plan` and `create` reject an occupied or registered path and a destination inside an existing instance. A preview reserves nothing. If registration fails after publication, the response still has `state: "prepared"` and gives the registration failure reason. Continue at the returned path.
 
@@ -246,7 +246,7 @@ For recovery, inspect the init result’s settings publication and copy state. I
 
 Both adapters implement the same storage interface, keeping SQL, schema initialization, transactions and locking outside business operations. MySQL needs a dedicated InnoDB database, schema-scoped SELECT, INSERT, UPDATE, DELETE, CREATE and ALTER privileges, and support for named locks. CI exercises MySQL 8.4.
 
-Both backends store team, repository and Workbox configurations. UUID references are local to each store. Each Workbox has its own repository list on disk. Configuration edits affect future creates only.
+Both backends store team, repository and Workbox configurations. UUID references are local to each store. Each Workbox instance has its own repository list on disk. Configuration edits affect future creates only.
 
 After the settings gate, missing SQLite DBs and empty MySQL databases return empty lists/exports without initializing tables. Init itself explicitly prepares tables. A nonexistent or inaccessible MySQL database is an error. Missing configuration lookups fail without initialization. Status, help, version, skill installation and uninstall do not connect to the DB. Invalid writes and failed remote validation do not initialize a DB. Unknown DB versions are rejected without migration; damaged/unreadable DBs are errors. Short read transactions provide snapshots; network checks run outside write transactions. Writes recheck the snapshot under a transaction and reject concurrent changes with `CONFIG_CONFLICT`. Uninstall preserves both local and remote configuration.
 

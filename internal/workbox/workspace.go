@@ -28,14 +28,14 @@ func destination(raw string) (string, *Failure) {
 	}
 	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
 	if err != nil {
-		return "", fail("PATH_INVALID", "Workbox parent must exist and be accessible")
+		return "", fail("PATH_INVALID", "The parent of the instance directory must exist and be accessible")
 	}
 	info, err := os.Stat(parent)
 	if err != nil || !info.IsDir() {
-		return "", fail("PATH_INVALID", "Workbox parent must be a directory")
+		return "", fail("PATH_INVALID", "The parent path of the instance directory must be a directory")
 	}
 	if syscall.Access(parent, 3) != nil {
-		return "", ioFailure("Workbox parent is not writable")
+		return "", ioFailure("The parent of the instance directory is not writable")
 	}
 	for ancestor := parent; ; ancestor = filepath.Dir(ancestor) {
 		marker := filepath.Join(ancestor, ".workbox", "repos.json")
@@ -52,10 +52,10 @@ func destination(raw string) (string, *Failure) {
 	}
 	exists, err := pathExists(path)
 	if err != nil {
-		return "", ioFailure("Could not inspect Workbox target")
+		return "", ioFailure("Could not inspect the target instance directory")
 	}
 	if exists {
-		return "", fail("TARGET_EXISTS", "Workbox target already exists: "+path)
+		return "", fail("TARGET_EXISTS", "The target instance directory already exists: "+path)
 	}
 	return filepath.Join(parent, filepath.Base(path)), nil
 }
@@ -71,17 +71,17 @@ func openInstanceParent(parentPath string) (*os.Root, *Failure) {
 	before, err := os.Lstat(parentPath)
 	resolved, resolveErr := filepath.EvalSymlinks(parentPath)
 	if err != nil || resolveErr != nil || !before.IsDir() || resolved != parentPath {
-		return nil, fail("PATH_INVALID", "Workbox parent was replaced or linked")
+		return nil, fail("PATH_INVALID", "The parent of the instance directory was replaced or linked")
 	}
 	parent, err := os.OpenRoot(parentPath)
 	if err != nil {
-		return nil, ioFailure("Could not open Workbox parent")
+		return nil, ioFailure("Could not open the parent of the instance directory")
 	}
 
 	actualParent, err := parent.Stat(".")
 	if err != nil || !os.SameFile(before, actualParent) {
 		parent.Close()
-		return nil, fail("PATH_INVALID", "Workbox parent was replaced")
+		return nil, fail("PATH_INVALID", "The parent of the instance directory was replaced")
 	}
 	return parent, nil
 }
@@ -89,33 +89,33 @@ func newTreeAt(parent *os.Root, path string) (*ownedTree, *Failure) {
 	name := filepath.Base(path)
 	if err := parent.Mkdir(name, 0700); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return nil, fail("TARGET_EXISTS", "Workbox target appeared during creation")
+			return nil, fail("TARGET_EXISTS", "The staging directory appeared during creation")
 		}
-		return nil, ioFailure("Could not create Workbox root")
+		return nil, ioFailure("Could not create the staging directory")
 	}
 	info, err := parent.Lstat(name)
 	if err != nil || !info.IsDir() {
-		return nil, fail("PATH_INVALID", "Workbox root was replaced or linked")
+		return nil, fail("PATH_INVALID", "The staging directory was replaced or linked")
 	}
 	root, err := parent.OpenRoot(name)
 	if err != nil {
-		return nil, ioFailure("Could not open prepared Workbox root")
+		return nil, ioFailure("Could not open the staging directory")
 	}
 	actual, err := root.Stat(".")
 	if err != nil || !os.SameFile(info, actual) {
 		root.Close()
-		return nil, fail("PATH_INVALID", "Workbox root was replaced")
+		return nil, fail("PATH_INVALID", "The staging directory was replaced")
 	}
 	return &ownedTree{path: path, root: root, owned: map[string]os.FileInfo{".": info}}, nil
 }
 func (t *ownedTree) check() *Failure {
 	actual, err := os.Lstat(t.path)
 	if err != nil || !actual.IsDir() || !os.SameFile(actual, t.owned["."]) {
-		return fail("PATH_INVALID", "Workbox root was replaced or linked")
+		return fail("PATH_INVALID", "The staging directory was replaced or linked")
 	}
 	resolved, err := filepath.EvalSymlinks(t.path)
 	if err != nil || resolved != t.path {
-		return fail("PATH_INVALID", "Workbox parent was linked")
+		return fail("PATH_INVALID", "The staging directory path contains a symbolic link")
 	}
 	for name, info := range t.owned {
 		actual, err := t.root.Lstat(name)
@@ -146,7 +146,7 @@ func (t *ownedTree) mkdir(name string) *Failure {
 			}
 			return fail("TARGET_EXISTS", "Unexpected directory appeared during creation")
 		}
-		return ioFailure("Could not prepare Workbox directory")
+		return ioFailure("Could not prepare a subdirectory in the staging directory")
 	}
 	info, err := t.root.Lstat(name)
 	if err != nil || !info.IsDir() {
@@ -247,7 +247,7 @@ func (a *app) prepare(ctx context.Context, name, raw string, create bool) (data 
 		return result, nil
 	}
 	if ctx.Err() != nil {
-		return nil, fail("INTERRUPTED", "Workbox preparation interrupted")
+		return nil, fail("INTERRUPTED", "Workbox instance preparation interrupted")
 	}
 	if e := a.createInstance(ctx, root, repos, w.Docs, selectedSkills); e != nil {
 		return nil, e
@@ -326,7 +326,7 @@ func (a *app) createInstance(ctx context.Context, root string, repos []workspace
 		return e
 	}
 	if ctx.Err() != nil {
-		return fail("INTERRUPTED", "Workbox preparation interrupted")
+		return fail("INTERRUPTED", "Workbox instance preparation interrupted")
 	}
 	publish := a.publishInstance
 	if publish == nil {
@@ -334,9 +334,9 @@ func (a *app) createInstance(ctx context.Context, root string, repos []workspace
 	}
 	if err := publish(parent, stageName, filepath.Base(root)); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return fail("TARGET_EXISTS", "Workbox target appeared during creation")
+			return fail("TARGET_EXISTS", "The target instance directory appeared during creation")
 		}
-		return ioFailure("Could not publish Workbox directory")
+		return ioFailure("Could not publish the instance directory")
 	}
 	return nil
 }

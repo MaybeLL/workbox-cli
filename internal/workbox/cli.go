@@ -78,7 +78,8 @@ const usage = `Usage: workbox COMMAND [--format text|json]
 
 Every command supports --format json; text is the default.
 Scripts are stored and returned to the caller, never executed.
-Create writes .workbox/repos.json and the configured documents and Skills.
+Create prepares a Workbox instance and writes .workbox/repos.json and the configured documents and Skills to the instance directory.
+List shows registered Workbox instances. Forget removes the registration and preserves the instance directory.
 Plan and create do not check out business repositories. target_dir is the requested checkout location.
 Skill install copies the bundled skill to ~/.agents/skills/workbox by default.
 --path selects a different skills parent directory. Verified unmodified older installations are upgraded; customized content is preserved.

@@ -27,7 +27,7 @@ type searchResult struct {
 func (a *app) remoteCode(ctx context.Context, c command) (any, *Failure) {
 	dir, err := os.OpenRoot(c.flags["path"])
 	if err != nil {
-		return nil, ioFailure("Cannot open Workbox directory")
+		return nil, ioFailure("Cannot open the instance directory")
 	}
 	defer dir.Close()
 	raw, err := dir.ReadFile(".workbox/repos.json")
